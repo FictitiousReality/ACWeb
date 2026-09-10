@@ -66,6 +66,8 @@ async function load() {
       objects = new ObjectRenderer(assets);
     }
     world.clear();
+    const showScenery = $<HTMLInputElement>("scenery").checked;
+    if (showScenery) await objects!.preloadScenes();
     const center = parseInt($<HTMLInputElement>("lb").value.replace(/^0x/i, "").slice(0, 4), 16);
     const radius = Number($<HTMLInputElement>("radius").value) || 0;
     const cx = center >> 8, cy = center & 0xff;
@@ -86,6 +88,14 @@ async function load() {
             const g = await objects!.landblockObjects(id);
             objs += g.children.length;
             world.add(g);
+          }
+          if (showScenery) {
+            const geo = terrain!.geometries.get(id);
+            if (geo) {
+              const g = await objects!.scenery(id, geo);
+              objs += g.children.reduce((n: number, c: THREE.Object3D) => n + ((c as THREE.InstancedMesh).count ?? 1), 0);
+              world.add(g);
+            }
           }
           log(`loaded ${blocks} landblocks, ${objs} objects... ${(performance.now() - t0).toFixed(0)} ms`);
         })());
@@ -129,5 +139,8 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// debugging handles
+(globalThis as unknown as { acweb: unknown }).acweb = { scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load };
 
 if (new URLSearchParams(location.search).get("auto") === "1") load();

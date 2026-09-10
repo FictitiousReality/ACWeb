@@ -9,3 +9,4 @@ export * from "./records/animation.ts";
 export * from "./records/surface.ts";
 export * from "./records/cell.ts";
 export * from "./records/region.ts";
+export * from "./records/scene.ts";

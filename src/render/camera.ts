@@ -10,10 +10,16 @@ export class FlyCamera {
 
   constructor(readonly camera: THREE.PerspectiveCamera, private el: HTMLElement) {
     camera.up.set(0, 0, 1);
-    el.addEventListener("click", () => el.requestPointerLock());
+    let dragging = false;
+    el.addEventListener("mousedown", () => {
+      dragging = true;
+      // Pointer lock is not available in every embedding; fall back to drag-look.
+      try { el.requestPointerLock()?.catch?.(() => {}); } catch { /* ignore */ }
+    });
+    addEventListener("mouseup", () => (dragging = false));
     document.addEventListener("pointerlockchange", () => (this.locked = document.pointerLockElement === el));
     document.addEventListener("mousemove", (e) => {
-      if (!this.locked) return;
+      if (!this.locked && !dragging) return;
       this.yaw -= e.movementX * 0.0025;
       this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch - e.movementY * 0.0025));
     });

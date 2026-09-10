@@ -166,6 +166,7 @@ export class TerrainRenderer {
   readonly material: THREE.ShaderMaterial;
   readonly texMerge: TexMergeTable;
   private cache = new Map<number, Promise<THREE.Mesh | null>>();
+  readonly geometries = new Map<number, LandblockGeometry>();
 
   constructor(private assets: Assets, region: Parameters<typeof buildLandblockGeometry>[1]) {
     this.texMerge = new TexMergeTable(region);
@@ -213,6 +214,7 @@ export class TerrainRenderer {
     if (!lb) return null;
     const region = await this.assets.region();
     const geo = buildLandblockGeometry(lb as Landblock, region, this.texMerge);
+    this.geometries.set(id, geo);
     return this.toMesh(geo);
   }
 

@@ -2,6 +2,7 @@
   "tasks": {
     "inspect": "deno run --allow-read --allow-env src/tools/inspect.ts",
     "verify": "deno run --allow-read --allow-env src/tools/verify.ts",
+    "scenery": "deno run --allow-read --allow-env src/tools/scenery.ts",
     "build": "deno bundle --platform browser --sourcemap linked -o web/dist/main.js web/main.ts",
     "watch": "deno bundle --platform browser --sourcemap linked --watch -o web/dist/main.js web/main.ts",
     "serve": "deno run --allow-read --allow-net --allow-env src/tools/serve.ts"

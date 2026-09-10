@@ -8,7 +8,7 @@
 import {
   BinReader, DatDatabase, DenoFileSource, hex, parseAnimation, parseEnvCell, parseEnvironment, parseGfxObj,
   parseLandblock, parseLandblockInfo, parsePalette, parseRegion, parseSetup, parseSurface, parseSurfaceTexture,
-  parseTexture, PortalKind, REGION_ID,
+  parseTexture, parseScene, PortalKind, REGION_ID,
 } from "../dat/mod.ts";
 
 const dir = Deno.args[0] ?? `${Deno.env.get("HOME")}/Downloads/ac-updates`;
@@ -60,6 +60,7 @@ await check(portal, "GfxObj", byKind(PortalKind.GfxObj), parseGfxObj);
 await check(portal, "Setup", byKind(PortalKind.Setup), parseSetup);
 await check(portal, "Animation", byKind(PortalKind.Animation), parseAnimation);
 await check(portal, "Environment", byKind(PortalKind.Environment), parseEnvironment);
+await check(portal, "Scene", byKind(PortalKind.Scene), parseScene);
 
 const cellIds = [...cell.files.keys()];
 await check(cell, "Landblock", cellIds.filter((id) => (id & 0xffff) === 0xffff), parseLandblock);

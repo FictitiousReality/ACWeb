@@ -1,0 +1,18 @@
+{
+  "version": "5",
+  "specifiers": {
+    "npm:three@0.170.0": "0.170.0"
+  },
+  "npm": {
+    "three@0.170.0": {
+      "integrity": "sha512-FQK+LEpYc0fBD+J8g6oSEyyNzjp+Q7Ks1C568WWaoMRLW+TkNNWmenWeGgJjV105Gd+p/2ql1ZcjYvNiPZBhuQ=="
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@std/http@1",
+      "jsr:@std/path@1",
+      "npm:three@0.170.0"
+    ]
+  }
+}

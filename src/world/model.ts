@@ -41,8 +41,8 @@ function triangulate(poly: Polygon, g: GfxObj, pos: number[], nrm: number[], uv:
 }
 
 /**
- * AC stores polygons with clockwise front faces (DirectX convention) so we
- * flip winding to CCW for OpenGL-style renderers.
+ * AC polygon vertex order is already counter-clockwise for front faces in a
+ * right-handed Z-up world, so it maps to Three.js FrontSide unchanged.
  */
 export function buildMesh(g: GfxObj): MeshData {
   const buckets = new Map<string, { surfaceIndex: number; doubleSided: boolean; pos: number[]; nrm: number[]; uv: number[] }>();
@@ -59,16 +59,16 @@ export function buildMesh(g: GfxObj): MeshData {
     if (poly.vertexIds.length < 3) continue;
     if (poly.sidesType === CullMode.None) {
       const b = bucket(poly.posSurface, true);
-      triangulate(poly, g, b.pos, b.nrm, b.uv, true, false);
+      triangulate(poly, g, b.pos, b.nrm, b.uv, false, false);
     } else if (poly.sidesType === CullMode.Clockwise) {
       // two-sided with distinct back surface
       const f = bucket(poly.posSurface, false);
-      triangulate(poly, g, f.pos, f.nrm, f.uv, true, false);
+      triangulate(poly, g, f.pos, f.nrm, f.uv, false, false);
       const b = bucket(poly.negSurface, false);
-      triangulate(poly, g, b.pos, b.nrm, b.uv, false, true);
+      triangulate(poly, g, b.pos, b.nrm, b.uv, true, true);
     } else {
       const b = bucket(poly.posSurface, false);
-      triangulate(poly, g, b.pos, b.nrm, b.uv, true, false);
+      triangulate(poly, g, b.pos, b.nrm, b.uv, false, false);
     }
   }
   const groups: MeshGroup[] = [];

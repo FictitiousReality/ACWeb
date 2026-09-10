@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>acweb</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; color: #ddd; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+    canvas { display: block; }
+    #ui { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 8px; align-items: center; padding: 6px 10px;
+          background: rgba(0,0,0,.6); backdrop-filter: blur(4px); z-index: 2; flex-wrap: wrap; }
+    #ui input[type=text] { width: 6em; font-family: ui-monospace, monospace; }
+    #ui button, #ui input, #ui select { font: inherit; }
+    #status { position: fixed; left: 10px; bottom: 8px; font-family: ui-monospace, monospace; white-space: pre; opacity: .85; z-index: 2; }
+    #help { position: fixed; right: 10px; bottom: 8px; opacity: .6; z-index: 2; text-align: right; }
+    #files { display: none; gap: 6px; align-items: center; }
+    #files.show { display: flex; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <strong>acweb</strong>
+    <select id="source">
+      <option value="http">DATs from dev server</option>
+      <option value="files">DATs from local files</option>
+    </select>
+    <span id="files">
+      <label>portal <input type="file" id="portalFile" accept=".dat"></label>
+      <label>cell <input type="file" id="cellFile" accept=".dat"></label>
+    </span>
+    <label>landblock <input type="text" id="lb" value="A9B4"></label>
+    <label>radius <input type="number" id="radius" value="1" min="0" max="4" style="width:3em"></label>
+    <button id="go">Load</button>
+    <label><input type="checkbox" id="objects" checked> objects</label>
+    <label><input type="checkbox" id="wire"> wireframe</label>
+  </div>
+  <div id="status"></div>
+  <div id="help">click canvas to look · WASD move · Q/E down/up · shift = fast · esc releases mouse</div>
+  <script type="module" src="dist/main.js"></script>
+</body>
+</html>

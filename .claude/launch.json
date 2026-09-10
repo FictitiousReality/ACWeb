@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "acweb-dev",
+      "runtimeExecutable": "deno",
+      "runtimeArgs": ["task", "serve"],
+      "port": 8000
+    }
+  ]
+}

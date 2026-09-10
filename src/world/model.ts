@@ -1,0 +1,86 @@
+/**
+ * Turn GfxObj polygons into flat triangle lists grouped by surface, and
+ * resolve Setup part placement. Pure data; the renderer maps to GPU buffers.
+ */
+import type { GfxObj } from "../dat/records/gfxobj.ts";
+import type { Polygon } from "../dat/records/common.ts";
+import { CullMode } from "../dat/types.ts";
+
+export interface MeshGroup {
+  /** index into GfxObj.surfaces */
+  surfaceIndex: number;
+  doubleSided: boolean;
+  positions: Float32Array;
+  normals: Float32Array;
+  uvs: Float32Array;
+  triangleCount: number;
+}
+
+export interface MeshData {
+  id: number;
+  groups: MeshGroup[];
+}
+
+function triangulate(poly: Polygon, g: GfxObj, pos: number[], nrm: number[], uv: number[], flip: boolean, useNeg: boolean) {
+  const ids = poly.vertexIds;
+  const uvIdx = useNeg ? poly.negUVIndices : poly.posUVIndices;
+  const n = ids.length;
+  const push = (k: number) => {
+    const v = g.vertexArray.vertices.get(ids[k] & 0xffff);
+    if (!v) throw new Error(`GfxObj ${g.id.toString(16)}: missing vertex ${ids[k]}`);
+    pos.push(v.origin.x, v.origin.y, v.origin.z);
+    const s = useNeg ? -1 : 1;
+    nrm.push(v.normal.x * s, v.normal.y * s, v.normal.z * s);
+    const t = v.uvs[uvIdx[k] ?? 0];
+    uv.push(t ? t.u : 0, t ? t.v : 0);
+  };
+  for (let k = 1; k + 1 < n; k++) {
+    if (flip) { push(0); push(k + 1); push(k); }
+    else { push(0); push(k); push(k + 1); }
+  }
+}
+
+/**
+ * AC stores polygons with clockwise front faces (DirectX convention) so we
+ * flip winding to CCW for OpenGL-style renderers.
+ */
+export function buildMesh(g: GfxObj): MeshData {
+  const buckets = new Map<string, { surfaceIndex: number; doubleSided: boolean; pos: number[]; nrm: number[]; uv: number[] }>();
+  const bucket = (surfaceIndex: number, doubleSided: boolean) => {
+    const key = `${surfaceIndex}:${doubleSided ? 1 : 0}`;
+    let b = buckets.get(key);
+    if (!b) {
+      b = { surfaceIndex, doubleSided, pos: [], nrm: [], uv: [] };
+      buckets.set(key, b);
+    }
+    return b;
+  };
+  for (const poly of g.polygons.values()) {
+    if (poly.vertexIds.length < 3) continue;
+    if (poly.sidesType === CullMode.None) {
+      const b = bucket(poly.posSurface, true);
+      triangulate(poly, g, b.pos, b.nrm, b.uv, true, false);
+    } else if (poly.sidesType === CullMode.Clockwise) {
+      // two-sided with distinct back surface
+      const f = bucket(poly.posSurface, false);
+      triangulate(poly, g, f.pos, f.nrm, f.uv, true, false);
+      const b = bucket(poly.negSurface, false);
+      triangulate(poly, g, b.pos, b.nrm, b.uv, false, true);
+    } else {
+      const b = bucket(poly.posSurface, false);
+      triangulate(poly, g, b.pos, b.nrm, b.uv, true, false);
+    }
+  }
+  const groups: MeshGroup[] = [];
+  for (const b of buckets.values()) {
+    groups.push({
+      surfaceIndex: b.surfaceIndex,
+      doubleSided: b.doubleSided,
+      positions: new Float32Array(b.pos),
+      normals: new Float32Array(b.nrm),
+      uvs: new Float32Array(b.uv),
+      triangleCount: b.pos.length / 9,
+    });
+  }
+  return { id: g.id, groups };
+}

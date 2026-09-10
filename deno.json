@@ -1,0 +1,21 @@
+{
+  "name": "acweb",
+  "version": "0.0.1",
+  "tasks": {
+    "inspect": "deno run --allow-read src/tools/inspect.ts",
+    "verify": "deno run --allow-read src/tools/verify.ts",
+    "build": "deno bundle --platform browser --sourcemap linked -o web/dist/main.js web/main.ts",
+    "watch": "deno bundle --platform browser --sourcemap linked --watch -o web/dist/main.js web/main.ts",
+    "serve": "deno run --allow-read --allow-net --allow-env src/tools/serve.ts"
+  },
+  "imports": {
+    "three": "npm:three@0.170.0",
+    "@std/http": "jsr:@std/http@^1.0.0",
+    "@std/path": "jsr:@std/path@^1.0.0"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "dom", "dom.iterable"],
+    "strict": true
+  },
+  "fmt": { "lineWidth": 110 }
+}

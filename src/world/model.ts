@@ -84,3 +84,39 @@ export function buildMesh(g: GfxObj): MeshData {
   }
   return { id: g.id, groups };
 }
+
+import type { CellStruct } from "../dat/records/cell.ts";
+
+/**
+ * Indoor cell geometry. Surface indices refer to the owning EnvCell's surface
+ * list. Polygons with stippling == NoPos are portal openings and are skipped.
+ */
+export function buildCellMesh(cell: CellStruct, id: number): MeshData {
+  const buckets = new Map<number, { pos: number[]; nrm: number[]; uv: number[] }>();
+  const verts = cell.vertexArray.vertices;
+  for (const poly of cell.polygons.values()) {
+    if (poly.vertexIds.length < 3) continue;
+    if (poly.stippling === 4 /* NoPos: portal / invisible */) continue;
+    let b = buckets.get(poly.posSurface);
+    if (!b) buckets.set(poly.posSurface, b = { pos: [], nrm: [], uv: [] });
+    const n = poly.vertexIds.length;
+    const push = (k: number) => {
+      const v = verts.get(poly.vertexIds[k] & 0xffff);
+      if (!v) throw new Error(`CellStruct ${id.toString(16)}: missing vertex ${poly.vertexIds[k]}`);
+      b!.pos.push(v.origin.x, v.origin.y, v.origin.z);
+      b!.nrm.push(v.normal.x, v.normal.y, v.normal.z);
+      const t = v.uvs[poly.posUVIndices[k] ?? 0];
+      b!.uv.push(t ? t.u : 0, t ? t.v : 0);
+    };
+    for (let k = 1; k + 1 < n; k++) { push(0); push(k); push(k + 1); }
+  }
+  const groups: MeshGroup[] = [];
+  for (const [surfaceIndex, b] of buckets) {
+    groups.push({
+      surfaceIndex, doubleSided: true,
+      positions: new Float32Array(b.pos), normals: new Float32Array(b.nrm), uvs: new Float32Array(b.uv),
+      triangleCount: b.pos.length / 9,
+    });
+  }
+  return { id, groups };
+}

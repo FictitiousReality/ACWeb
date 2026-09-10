@@ -3,10 +3,11 @@
  */
 import * as THREE from "three";
 import type { Assets } from "./assets.ts";
-import { hex, parseLandblock, parseLandblockInfo, parseScene, Placement } from "../dat/mod.ts";
+import { hex, parseEnvCell, parseEnvironment, parseLandblock, parseLandblockInfo, parseScene, Placement } from "../dat/mod.ts";
 import type { Frame, Scene } from "../dat/mod.ts";
 import { landblockX, landblockY, BLOCK_LENGTH, CELL_LENGTH, type LandblockGeometry } from "../world/terrain.ts";
 import { buildScenery } from "../world/scenery.ts";
+import { buildCellMesh } from "../world/model.ts";
 
 export class ObjectRenderer {
   private gfxCache = new Map<number, Promise<THREE.Group | null>>();
@@ -111,6 +112,12 @@ export class ObjectRenderer {
     return root;
   }
 
+  /** Dungeon = has indoor cells but no buildings or outdoor static objects. */
+  async isDungeon(landblockId: number): Promise<boolean> {
+    const info = await this.assets.cell.get(((landblockId & 0xffff0000) | 0xfffe) >>> 0, parseLandblockInfo);
+    return !!info && info.numCells > 0 && info.buildings.length === 0 && info.objects.length === 0;
+  }
+
   private sceneCache = new Map<number, Scene | null>();
 
   /** Preload every Scene referenced by the region so placement can run synchronously. */
@@ -161,6 +168,85 @@ export class ObjectRenderer {
       }
     }));
     return root;
+  }
+}
+
+export class EnvCellRenderer {
+  private structCache = new Map<string, Promise<THREE.BufferGeometry[] | null>>();
+
+  constructor(private assets: Assets, private objects: ObjectRenderer) {}
+
+  /** Geometry per surface-index bucket for one CellStruct of an Environment. */
+  private cellStruct(envId: number, structId: number): Promise<{ geo: THREE.BufferGeometry; surfaceIndex: number }[] | null> {
+    const key = `${envId}:${structId}`;
+    let p = this.structCache.get(key) as Promise<{ geo: THREE.BufferGeometry; surfaceIndex: number }[] | null> | undefined;
+    if (!p) {
+      p = (async () => {
+        const env = await this.assets.portal.get(envId, parseEnvironment);
+        const cs = env?.cells.get(structId);
+        if (!cs) return null;
+        const mesh = buildCellMesh(cs, envId);
+        return mesh.groups.filter((g) => g.triangleCount > 0).map((g) => {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", new THREE.BufferAttribute(g.positions, 3));
+          geo.setAttribute("normal", new THREE.BufferAttribute(g.normals, 3));
+          geo.setAttribute("uv", new THREE.BufferAttribute(g.uvs, 2));
+          geo.computeBoundingSphere();
+          return { geo, surfaceIndex: g.surfaceIndex };
+        });
+      })();
+      this.structCache.set(key, p as never);
+    }
+    return p;
+  }
+
+  /** One EnvCell (interior room / dungeon cell) with its static objects, in world space. */
+  async envCell(cellId: number): Promise<THREE.Group | null> {
+    const ec = await this.assets.cell.get(cellId, parseEnvCell);
+    if (!ec) return null;
+    const parts = await this.cellStruct(ec.environmentId, ec.cellStructure);
+    const group = new THREE.Group();
+    group.name = `cell_${hex(cellId)}`;
+    const ox = landblockX(cellId) * BLOCK_LENGTH, oy = landblockY(cellId) * BLOCK_LENGTH;
+    if (parts) {
+      const room = new THREE.Group();
+      applyFrame(room, ec.position);
+      for (const p of parts) {
+        const surfaceId = ec.surfaces[p.surfaceIndex] ?? ec.surfaces[0];
+        room.add(new THREE.Mesh(p.geo, await this.assets.material(surfaceId, true)));
+      }
+      group.add(room);
+    }
+    for (const stab of ec.staticObjects) {
+      const tmpl = await this.objects.model(stab.id);
+      if (!tmpl) continue;
+      const inst = tmpl.clone();
+      applyFrame(inst, stab.frame);
+      group.add(inst);
+    }
+    group.position.set(ox, oy, 0);
+    return group;
+  }
+
+  /** Every EnvCell of a landblock (building interiors and dungeons). */
+  async landblockCells(landblockId: number): Promise<{ group: THREE.Group; count: number; first: THREE.Group | null }> {
+    const group = new THREE.Group();
+    const infoId = ((landblockId & 0xffff0000) | 0xfffe) >>> 0;
+    const info = await this.assets.cell.get(infoId, parseLandblockInfo);
+    let count = 0;
+    let first: THREE.Group | null = null;
+    if (!info || info.numCells === 0) return { group, count, first };
+    const base = landblockId & 0xffff0000;
+    const cells = await Promise.all(
+      Array.from({ length: info.numCells }, (_, i) => this.envCell((base | (0x100 + i)) >>> 0)),
+    );
+    for (const c of cells) {
+      if (!c) continue;
+      group.add(c);
+      count++;
+      if (!first && c.children[0]) first = c;
+    }
+    return { group, count, first };
   }
 }
 

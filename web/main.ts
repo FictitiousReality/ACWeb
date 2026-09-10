@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { BlobSource, DatDatabase, HttpRangeSource, parseLandblock } from "../src/dat/mod.ts";
 import { Assets } from "../src/render/assets.ts";
 import { TerrainRenderer } from "../src/render/terrain.ts";
-import { ObjectRenderer } from "../src/render/objects.ts";
+import { EnvCellRenderer, ObjectRenderer } from "../src/render/objects.ts";
 import { FlyCamera } from "../src/render/camera.ts";
 import { BLOCK_LENGTH, landblockId } from "../src/world/terrain.ts";
 
@@ -35,6 +35,7 @@ addEventListener("resize", () => {
 let assets: Assets | null = null;
 let terrain: TerrainRenderer | null = null;
 let objects: ObjectRenderer | null = null;
+let envcells: EnvCellRenderer | null = null;
 const world = new THREE.Group();
 scene.add(world);
 
@@ -64,6 +65,7 @@ async function load() {
       assets = await openDats();
       terrain = new TerrainRenderer(assets, await assets.region());
       objects = new ObjectRenderer(assets);
+      envcells = new EnvCellRenderer(assets, objects);
     }
     world.clear();
     const showScenery = $<HTMLInputElement>("scenery").checked;
@@ -72,6 +74,9 @@ async function load() {
     const radius = Number($<HTMLInputElement>("radius").value) || 0;
     const cx = center >> 8, cy = center & 0xff;
     const showObjects = $<HTMLInputElement>("objects").checked;
+    const showInteriors = $<HTMLInputElement>("interiors").checked;
+    let firstCell: THREE.Group | null = null;
+    let cellCount = 0;
     const t0 = performance.now();
     let blocks = 0, objs = 0;
     const jobs: Promise<void>[] = [];
@@ -80,16 +85,24 @@ async function load() {
         if (x < 0 || y < 0 || x > 0xfe || y > 0xfe) continue;
         const id = landblockId(x, y);
         jobs.push((async () => {
-          const mesh = await terrain!.landblock(id);
-          if (!mesh) return;
-          world.add(mesh);
+          // Dungeon landblocks carry a dummy terrain block; the client never draws it.
+          const dungeon = await objects!.isDungeon(id);
+          const mesh = dungeon ? null : await terrain!.landblock(id);
+          if (!mesh && !dungeon) return;
+          if (mesh) world.add(mesh);
           blocks++;
           if (showObjects) {
             const g = await objects!.landblockObjects(id);
             objs += g.children.length;
             world.add(g);
           }
-          if (showScenery) {
+          if (showInteriors) {
+            const r = await envcells!.landblockCells(id);
+            cellCount += r.count;
+            if (id === landblockId(cx, cy) && r.first) firstCell = r.first;
+            world.add(r.group);
+          }
+          if (showScenery && !dungeon) {
             const geo = terrain!.geometries.get(id);
             if (geo) {
               const g = await objects!.scenery(id, geo);
@@ -106,9 +119,19 @@ async function load() {
     const lb = await assets.cell.get(landblockId(cx, cy), parseLandblock);
     const region = await assets.region();
     const zc = lb ? region.landDefs.landHeightTable[lb.height[4 * 9 + 4]] : 0;
-    camera.position.set(cx * BLOCK_LENGTH + 96, cy * BLOCK_LENGTH - 60, zc + 60);
-    fly.lookAt(new THREE.Vector3(cx * BLOCK_LENGTH + 96, cy * BLOCK_LENGTH + 96, zc));
-    log(`${blocks} landblocks, ${objs} objects in ${(performance.now() - t0).toFixed(0)} ms`);
+    const isDungeon = (await objects!.isDungeon(landblockId(cx, cy))) && firstCell;
+    if (isDungeon && firstCell) {
+      // dungeon: start inside the first cell
+      firstCell.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(firstCell);
+      const center = box.getCenter(new THREE.Vector3());
+      camera.position.set(center.x, center.y, box.min.z + 1.8);
+      fly.yaw = 0; fly.pitch = 0;
+    } else {
+      camera.position.set(cx * BLOCK_LENGTH + 96, cy * BLOCK_LENGTH - 60, zc + 60);
+      fly.lookAt(new THREE.Vector3(cx * BLOCK_LENGTH + 96, cy * BLOCK_LENGTH + 96, zc));
+    }
+    log(`${blocks} landblocks, ${objs} objects, ${cellCount} cells in ${(performance.now() - t0).toFixed(0)} ms`);
   } catch (e) {
     log(`error: ${(e as Error).message}`);
     console.error(e);
@@ -141,6 +164,6 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // debugging handles
-(globalThis as unknown as { acweb: unknown }).acweb = { scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load };
+(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load };
 
 if (new URLSearchParams(location.search).get("auto") === "1") load();

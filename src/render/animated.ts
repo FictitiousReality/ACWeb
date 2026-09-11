@@ -3,7 +3,8 @@
  * and a MotionTable. Part transforms are object-space (AC PartArray semantics).
  */
 import * as THREE from "three";
-import type { Assets } from "./assets.ts";
+import type { AppearanceChanges, Assets } from "./assets.ts";
+import type { ObjDesc } from "../net/messages.ts";
 import type { ObjectRenderer } from "./objects.ts";
 import { parseAnimation, parseMotionTable, Placement, hex } from "../dat/mod.ts";
 import type { Animation, MotionTable, Setup } from "../dat/mod.ts";
@@ -21,13 +22,32 @@ export class AnimatedModel {
 
   private constructor(private assets: Assets, readonly setup: Setup) {}
 
-  static async create(assets: Assets, objects: ObjectRenderer, setupId: number, motionTableId = 0): Promise<AnimatedModel | null> {
+  static async create(assets: Assets, objects: ObjectRenderer, setupId: number, motionTableId = 0, objDesc?: ObjDesc): Promise<AnimatedModel | null> {
     const setup = await assets.setup(setupId);
     if (!setup) return null;
     const m = new AnimatedModel(assets, setup);
     m.root.name = `anim_${hex(setupId)}`;
+    // appearance: palette (skin/dye), per-part texture swaps, per-part mesh replacements (clothing, hair)
+    const palette = objDesc ? await assets.objectPalette(objDesc.paletteId, objDesc.subPalettes) : null;
+    const partMesh = new Map<number, number>();
+    const partTex = new Map<number, Map<number, number>>();
+    if (objDesc) {
+      for (const c of objDesc.animPartChanges) partMesh.set(c.index, c.animId);
+      for (const t of objDesc.textureChanges) {
+        let m2 = partTex.get(t.part);
+        if (!m2) partTex.set(t.part, m2 = new Map());
+        m2.set(t.oldTex, t.newTex);
+      }
+    }
     for (let i = 0; i < setup.parts.length; i++) {
-      const tmpl = await objects.gfxObj(setup.parts[i]);
+      const gfxId = partMesh.get(i) ?? setup.parts[i];
+      const tex = partTex.get(i);
+      let changes: AppearanceChanges | null = null;
+      if (palette || tex) {
+        const texKey = tex ? [...tex.entries()].map(([a, b]) => `${a}>${b}`).join(",") : "";
+        changes = { key: `${palette?.key ?? ""}|${texKey}`, textureChanges: tex ?? new Map(), palette };
+      }
+      const tmpl = await objects.gfxObjVariant(gfxId, changes);
       const part = tmpl ? tmpl.clone() : new THREE.Group();
       const s = setup.defaultScale[i];
       if (s) part.scale.set(s.x, s.y, s.z);

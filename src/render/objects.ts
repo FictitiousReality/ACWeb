@@ -2,7 +2,7 @@
  * Static objects and buildings: GfxObj / Setup -> THREE.Object3D, placed by Frame.
  */
 import * as THREE from "three";
-import type { Assets } from "./assets.ts";
+import type { AppearanceChanges, Assets } from "./assets.ts";
 import { hex, parseEnvCell, parseEnvironment, parseLandblock, parseLandblockInfo, parseScene, Placement } from "../dat/mod.ts";
 import type { Frame, Scene } from "../dat/mod.ts";
 import { landblockX, landblockY, BLOCK_LENGTH, CELL_LENGTH, type LandblockGeometry } from "../world/terrain.ts";
@@ -27,7 +27,21 @@ export class ObjectRenderer {
     return p;
   }
 
-  private async buildGfxObj(id: number): Promise<THREE.Group | null> {
+  private variantCache = new Map<string, Promise<THREE.Group | null>>();
+
+  /** A GfxObj with an object's texture/palette changes applied (cached per variant). */
+  gfxObjVariant(id: number, changes: AppearanceChanges | null): Promise<THREE.Group | null> {
+    if (!changes) return this.gfxObj(id);
+    const key = `${id}:${changes.key}`;
+    let p = this.variantCache.get(key);
+    if (!p) {
+      p = this.buildGfxObj(id, changes);
+      this.variantCache.set(key, p);
+    }
+    return p;
+  }
+
+  private async buildGfxObj(id: number, changes?: AppearanceChanges): Promise<THREE.Group | null> {
     const g = await this.assets.gfxObj(id);
     const mesh = await this.assets.mesh(id);
     if (!g || !mesh) return null;
@@ -41,7 +55,7 @@ export class ObjectRenderer {
       geo.setAttribute("uv", new THREE.BufferAttribute(part.uvs, 2));
       geo.computeBoundingSphere();
       const surfaceId = g.surfaces[part.surfaceIndex] ?? g.surfaces[0];
-      const mat = await this.assets.material(surfaceId, part.doubleSided);
+      const mat = await this.assets.material(surfaceId, part.doubleSided, changes);
       group.add(new THREE.Mesh(geo, mat));
     }
     return group;

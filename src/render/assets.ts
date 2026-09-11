@@ -12,9 +12,9 @@ import { buildMesh, type MeshData } from "../world/model.ts";
 
 export class Assets {
   private textures = new Map<string, Promise<THREE.Texture | null>>();
-  private images = new Map<number, Promise<RgbaImage | null>>();
+  private imageCache = new Map<string, Promise<RgbaImage | null>>();
   private meshes = new Map<number, Promise<MeshData | null>>();
-  private materials = new Map<number, Promise<THREE.Material>>();
+  private materials = new Map<string, Promise<THREE.Material>>();
   private _region: RegionDesc | null = null;
 
   constructor(readonly portal: DatDatabase, readonly cell: DatDatabase, readonly highres: DatDatabase | null = null) {}
@@ -54,30 +54,63 @@ export class Assets {
     return null;
   }
 
-  /** Decoded RGBA image for a SurfaceTexture id. */
-  image(surfaceTextureId: number, clipMap = false, paletteId = 0): Promise<RgbaImage | null> {
-    const key = surfaceTextureId ^ (clipMap ? 0x80000000 : 0) ^ paletteId;
-    let p = this.images.get(key);
+  /** Decoded RGBA image for a SurfaceTexture id. `override` replaces the texture's own palette (clothing/skin dyes). */
+  image(surfaceTextureId: number, clipMap = false, paletteId = 0, override?: PaletteOverride): Promise<RgbaImage | null> {
+    const key = `${surfaceTextureId}:${clipMap ? 1 : 0}:${paletteId}:${override?.key ?? ""}`;
+    let p = this.imageCache.get(key);
     if (!p) {
       p = (async () => {
         const t = await this.textureRecord(surfaceTextureId);
         if (!t) return null;
         let palette: Uint32Array | undefined;
-        const pid = t.defaultPaletteId ?? paletteId;
-        if (pid) palette = (await this.portal.get(pid, parsePalette))?.colors;
+        if (override && (t.format === PixelFormat.INDEX16 || t.format === PixelFormat.P8)) palette = override.colors;
+        else {
+          const pid = t.defaultPaletteId ?? paletteId;
+          if (pid) palette = (await this.portal.get(pid, parsePalette))?.colors;
+        }
         if (t.format === PixelFormat.CUSTOM_RAW_JPEG) return decodeJpeg(t);
         return decodeTexture(t, { palette, clipMap });
       })();
-      this.images.set(key, p);
+      this.imageCache.set(key, p);
     }
     return p;
   }
 
-  async threeTexture(surfaceTextureId: number, clipMap = false, paletteId = 0): Promise<THREE.Texture | null> {
-    const key = `${surfaceTextureId}:${clipMap ? 1 : 0}:${paletteId}`;
+  private paletteCache = new Map<string, Promise<PaletteOverride | null>>();
+
+  /**
+   * Effective palette for an object: its base palette with sub-palette ranges
+   * copied in from the listed palettes (offsets/lengths are in units of 8 colors,
+   * length 0 meaning the whole 2048-entry palette).
+   */
+  objectPalette(paletteId: number, subs: { id: number; offset: number; length: number }[]): Promise<PaletteOverride | null> {
+    if (!paletteId) return Promise.resolve(null);
+    const key = `${paletteId}|${subs.map((s) => `${s.id}:${s.offset}:${s.length}`).join(",")}`;
+    let p = this.paletteCache.get(key);
+    if (!p) {
+      p = (async () => {
+        const base = await this.portal.get(paletteId, parsePalette);
+        if (!base) return null;
+        const colors = base.colors.slice();
+        for (const sp of subs) {
+          const pal = await this.portal.get(sp.id, parsePalette);
+          if (!pal) continue;
+          const offset = sp.offset * 8;
+          const count = (sp.length === 0 ? 256 : sp.length) * 8;
+          for (let i = offset; i < offset + count && i < colors.length && i < pal.colors.length; i++) colors[i] = pal.colors[i];
+        }
+        return { key, colors };
+      })();
+      this.paletteCache.set(key, p);
+    }
+    return p;
+  }
+
+  async threeTexture(surfaceTextureId: number, clipMap = false, paletteId = 0, override?: PaletteOverride): Promise<THREE.Texture | null> {
+    const key = `${surfaceTextureId}:${clipMap ? 1 : 0}:${paletteId}:${override?.key ?? ""}`;
     let p = this.textures.get(key);
     if (!p) {
-      p = this.image(surfaceTextureId, clipMap, paletteId).then((img) => {
+      p = this.image(surfaceTextureId, clipMap, paletteId, override).then((img) => {
         if (!img) return null;
         const tex = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat, THREE.UnsignedByteType);
         tex.colorSpace = THREE.SRGBColorSpace;
@@ -95,18 +128,21 @@ export class Assets {
     return p;
   }
 
-  /** Material for a Surface (0x08) id. */
-  material(surfaceId: number, doubleSided = false): Promise<THREE.Material> {
-    const key = surfaceId ^ (doubleSided ? 0x80000000 : 0);
+  /**
+   * Material for a Surface (0x08) id. `changes` applies an object's appearance:
+   * a replacement SurfaceTexture for the surface's original one, and/or a palette override.
+   */
+  material(surfaceId: number, doubleSided = false, changes?: AppearanceChanges): Promise<THREE.Material> {
+    const key = `${surfaceId}:${doubleSided ? 1 : 0}:${changes?.key ?? ""}`;
     let p = this.materials.get(key);
     if (!p) {
-      p = this.buildMaterial(surfaceId, doubleSided);
+      p = this.buildMaterial(surfaceId, doubleSided, changes);
       this.materials.set(key, p);
     }
     return p;
   }
 
-  private async buildMaterial(surfaceId: number, doubleSided: boolean): Promise<THREE.Material> {
+  private async buildMaterial(surfaceId: number, doubleSided: boolean, changes?: AppearanceChanges): Promise<THREE.Material> {
     const s = await this.surface(surfaceId);
     const mat = new THREE.MeshLambertMaterial({ side: doubleSided ? THREE.DoubleSide : THREE.FrontSide });
     mat.name = hex(surfaceId);
@@ -116,7 +152,8 @@ export class Assets {
     }
     const clip = (s.type & SurfaceFlags.Base1ClipMap) !== 0;
     if (s.type & (SurfaceFlags.Base1Image | SurfaceFlags.Base1ClipMap)) {
-      const tex = await this.threeTexture(s.origTextureId, clip, s.origPaletteId);
+      const texId = changes?.textureChanges.get(s.origTextureId) ?? s.origTextureId;
+      const tex = await this.threeTexture(texId, clip, s.origPaletteId, changes?.palette ?? undefined);
       if (tex) mat.map = tex;
       else {
         mat.color.set(0xff00ff);
@@ -138,6 +175,19 @@ export class Assets {
     if (s.luminosity > 0) mat.emissive.copy(mat.color).multiplyScalar(s.luminosity);
     return mat;
   }
+}
+
+export interface PaletteOverride {
+  key: string;
+  colors: Uint32Array;
+}
+
+/** Per-part appearance changes from an object's ObjDesc. */
+export interface AppearanceChanges {
+  key: string;
+  /** old SurfaceTexture id -> new SurfaceTexture id */
+  textureChanges: Map<number, number>;
+  palette: PaletteOverride | null;
 }
 
 export async function iconDataUrl(assets: Assets, textureId: number): Promise<string | null> {

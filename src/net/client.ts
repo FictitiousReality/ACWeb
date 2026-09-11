@@ -49,6 +49,8 @@ export interface ClientEvents {
   onObjectMotion?(obj: WorldObject, movement: MovementData): void;
   onObjectDelete?(guid: number): void;
   onPlayerTeleport?(): void;
+  /** the object's appearance (ObjDesc) changed, e.g. clothing worn/removed */
+  onAppearance?(obj: WorldObject): void;
   /** the server is commanding our own character to move/turn (e.g. facing an NPC on use) */
   onPlayerMotion?(movement: MovementData): void;
   /** inventory/equipment of the player changed (item added, removed, wielded, stack changed) */
@@ -365,7 +367,7 @@ export class GameClient {
         const guid = r.u32();
         const od = parseObjDesc(r);
         const obj = this.objects.get(guid);
-        if (obj) obj.raw.objDesc = od;
+        if (obj) { obj.raw.objDesc = od; this.events.onAppearance?.(obj); }
         break;
       }
       case Opcode.ServerMessage: {

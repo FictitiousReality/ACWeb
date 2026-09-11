@@ -280,6 +280,11 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onObjectMotion: (o, m) => { if (o.guid !== client!.playerGuid) netWorld?.onMotion(o, m); },
       onPlayerMotion: (m) => { if (player && (m.type === 8 || m.type === 9) && m.moveTo) player.faceHeading(m.moveTo.heading); },
       onObjectDelete: (g) => netWorld?.remove(g),
+      onAppearance: (o) => {
+        if (o.guid === client!.playerGuid) {
+          if (player && assets && streamer) AnimatedModel.create(assets, streamer.objects, o.setup, o.mtable, o.raw.objDesc).then((m) => { if (m && player) { if (player.model) player.root.remove(player.model.root); player.setModel(m); } });
+        } else netWorld?.create(o).then((e) => { if (e) e.root.userData.guid = o.guid; });
+      },
     });
     client.connect(host, port, account, password);
     if (new URLSearchParams(location.search).get("debug") === "1") client.session!.debug = true;
@@ -319,7 +324,7 @@ async function onEnterWorld(guid: number) {
     streamer!.update(player.pos.x, player.pos.y);
   }
   if (me?.setup) {
-    const m = await AnimatedModel.create(assets!, streamer!.objects, me.setup, me.mtable);
+    const m = await AnimatedModel.create(assets!, streamer!.objects, me.setup, me.mtable, me.raw.objDesc);
     if (m) await player.setModel(m);
   }
   log(`entered world as ${me?.name ?? guid.toString(16)}`);

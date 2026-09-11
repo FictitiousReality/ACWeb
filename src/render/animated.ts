@@ -72,9 +72,28 @@ export class AnimatedModel {
     return [...out.values()];
   }
 
+  /** Displacement per second produced by a motion's cycle animation (from its position frames). */
+  async cycleVelocity(command: number, stance = this.stance): Promise<[number, number, number]> {
+    if (!this.motionTable) return [0, 0, 0];
+    const { cycle } = motionSegments(this.motionTable, stance, command, this.currentMotion);
+    let x = 0, y = 0, z = 0, seconds = 0;
+    for (const d of cycle) {
+      const anim = await this.animation(d.animId);
+      if (!anim || anim.posFrames.length === 0) continue;
+      const lo = d.lowFrame, hi = d.highFrame === -1 ? anim.numFrames - 1 : d.highFrame;
+      for (let i = lo; i <= hi && i < anim.posFrames.length; i++) {
+        x += anim.posFrames[i].origin.x; y += anim.posFrames[i].origin.y; z += anim.posFrames[i].origin.z;
+      }
+      seconds += (hi - lo + 1) / Math.abs(d.framerate || 30);
+    }
+    if (seconds === 0) return [0, 0, 0];
+    return [x / seconds, y / seconds, z / seconds];
+  }
+
   /** Play a motion: transition animations from the current motion, then loop its cycle. */
   async playMotion(command: number, stance = this.stance): Promise<boolean> {
     if (!this.motionTable) return false;
+    if (command === this.currentMotion && stance === this.stance && this.sequence.nodes.length > 0) return true;
     const { link, cycle } = motionSegments(this.motionTable, stance, command, this.currentMotion);
     if (link.length === 0 && cycle.length === 0) return false;
     this.sequence.clear();

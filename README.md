@@ -17,8 +17,11 @@ code and from ACViewer. Educational, non-commercial.
   detection via the cell BSP and portal-style visibility (current cell + visible cells,
   outdoors only through cells flagged as seen-from-outside)
 - Animation: motion tables + animation sequencing; model viewer plays any motion of a Setup
-- Not yet: server-spawned objects (doors, NPCs, chests, lifestones come from the server),
-  clothing/palette swaps, water/sky, collision, networking
+- Networking: the AC UDP protocol in the browser (packet checksums, ISAAC-keyed encrypted
+  checksums, sequencing/acks/retransmits, fragments) via a tiny WebSocket-to-UDP relay;
+  login handshake, character list, enter world, object create/update/delete, positions,
+  motion, chat, and local movement reporting (MoveToState / AutonomousPosition)
+- Not yet: clothing/palette swaps on creatures, water/sky, collision, combat/inventory UI
 
 ## Running
 
@@ -35,6 +38,21 @@ radius, then click Load. Drag or click the canvas to look, WASD to move.
 Dungeon landblocks (e.g. `0002`) start the camera inside the first cell.
 The model viewer loads a Setup id (e.g. `020000CE`) and plays its motions.
 
+## Playing on a server
+
+Browsers cannot send UDP, so a relay forwards WebSocket frames to the game server:
+
+```bash
+deno task proxy                    # ws://127.0.0.1:8001  (needs --unstable-net, already in the task)
+deno task serve ~/path/to/dats     # http://127.0.0.1:8000
+```
+
+Open http://127.0.0.1:8000/play.html, enter the server host/port (defaults to
+Coldeve, `play.coldeve.ac:9000`), your account and password, pick a character
+and enter. Your password is written only into the login packet sent to the
+server. Add `?debug=1` to the URL to log every packet. Check the rules of the
+server you connect to; this is an unofficial client.
+
 Other tasks: `deno task verify` (parser check), `deno task scenery A9B4`
 (scenery placement stats).
 
@@ -42,6 +60,7 @@ Other tasks: `deno task verify` (parser check), `deno task scenery A9B4`
 
 - `src/dat/` — dat reader: byte sources, container, record parsers
 - `src/world/` — pure data transforms: texture decode, terrain geometry + blending, mesh building, scenery
-- `src/render/` — Three.js side: asset cache, terrain shader, object placement, camera
+- `src/net/` — AC network protocol: packet codec, session, message codecs, game client
+- `src/render/` — Three.js side: asset cache, terrain shader, object placement, camera, world streaming, networked entities, player controller
 - `src/tools/` — Deno CLI tools and the dev server
-- `web/` — the page and bundle output
+- `web/` — `index.html` (world/model viewer), `play.html` (server client), bundle output in `dist/`

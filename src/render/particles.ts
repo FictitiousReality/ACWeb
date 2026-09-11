@@ -156,8 +156,10 @@ export class ParticleSystem {
     const info = await this.info(infoId);
     if (this.debug) console.log(`[fx] create emitter ${infoId.toString(16)} source=${source} info=${!!info} dead=${this.dead.has(host)}`);
     if (!info || this.dead.has(host)) return;
-    // sprites textured from the hardware GfxObj, or clones of a real GfxObj mesh
-    const look = info.hwGfxObjId ? await this.look(info.hwGfxObjId) : null;
+    // sprites textured from the hardware GfxObj; the client drops emitters without one
+    // (ACE ParticleEmitter.SetInfo), so the mesh path is only a fallback for viewer use
+    if (!info.hwGfxObjId) return;
+    const look = await this.look(info.hwGfxObjId);
     const tmpl = !look && info.gfxObjId ? await this.meshLook(info.gfxObjId) : null;
     if (!look && !tmpl) return;
     const key = emitterId ? this.key(host, emitterId) : (source ?? `anon:${this.nextId++}`);
@@ -193,8 +195,9 @@ export class ParticleSystem {
     }
     const e: Emitter = { id: key, info, parent, offset, particles, dims: look ? look.dims : new THREE.Vector2(1, 1), mesh: !look, created: this.now, lastEmit: this.now, emitted: 0, stopped: false, group };
     this.emitters.set(key, e);
-    const burst = info.initialParticles > 0 ? info.initialParticles : (info.birthrate <= 0 ? info.totalParticles : 0);
-    for (let i = 0; i < burst; i++) this.emit(e);
+    // the client emits TotalParticles immediately at creation (ACE InitEnd); a limited emitter is
+    // therefore a burst that fades, and only unlimited ones (TotalParticles 0) stream by birthrate
+    for (let i = 0; i < Math.min(info.totalParticles, info.maxParticles); i++) this.emit(e);
   }
 
   destroy(host: ParticleHost, emitterId: number) {
@@ -330,10 +333,11 @@ export class ParticleSystem {
           case 3: case 8: case 10: case 4: case 9: case 11:
             pos.copy(p.b).multiplyScalar(t * t / 2).addScaledVector(p.a, t).add(origin).add(p.offset); break;
           case 5: {
-            // Swarm: orbit of radius C around the (rising) centre. ACE adds C instead of
-            // scaling by it, which puts the orbit off-centre; the data (c = 1,1,0) reads as a radius.
-            const sw = p.a.clone().multiplyScalar(t).add(origin).add(p.offset);
-            pos.set(Math.cos(t * p.b.x) * p.c.x + sw.x, Math.sin(t * p.b.y) * p.c.y + sw.y, Math.cos(t * p.b.z) * p.c.z + sw.z);
+            // Swarm (client formula via ACE): unit-radius orbit around A*t + C + origin + offset.
+            // C is an offset, not a radius: the cloud spreads over a couple of metres and bobs
+            // a full metre vertically, which is the look of the life buffs.
+            const sw = p.a.clone().multiplyScalar(t).add(p.c).add(origin).add(p.offset);
+            pos.set(Math.cos(t * p.b.x) + sw.x, Math.sin(t * p.b.y) + sw.y, Math.cos(t * p.b.z) + sw.z);
             break;
           }
           case 6: pos.copy(p.b).multiplyScalar(t).addScaledVector(p.c, p.a.x).multiplyScalar(t).add(p.offset).add(origin); break;

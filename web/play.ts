@@ -578,9 +578,11 @@ function frame(now: number) {
     sky.update(dt, camera);
     const L = sky.lighting;
     sunDir.copy(L.sunDir);
-    sun.color.copy(L.sunColor); sun.intensity = L.sunIntensity;
+    // model lights: the sky's values suit the terrain shader (which scales them itself); three's
+    // physically based lights divide by pi, and these factors keep a lit white texel just under 1
+    sun.color.copy(L.sunColor); sun.intensity = L.sunIntensity * 0.75;
     sun.position.copy(L.sunDir).negate().multiplyScalar(100);
-    ambient.color.copy(L.ambientColor); ambient.intensity = L.ambientIntensity;
+    ambient.color.copy(L.ambientColor); ambient.intensity = L.ambientIntensity * 0.5;
     // never let the fog end beyond the loaded terrain, or the void shows through
     const view = streamer ? streamer.viewDistance : 1400;
     const fogFar = Math.min(L.fogFar, view - 60);

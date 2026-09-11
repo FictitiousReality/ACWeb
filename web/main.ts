@@ -307,9 +307,11 @@ function frame(now: number) {
     sky.update(dt, camera);
     const L = sky.lighting;
     sunDir.copy(L.sunDir);
-    sun.color.copy(L.sunColor); sun.intensity = L.sunIntensity;
+    // model lights: the sky's values suit the terrain shader (which scales them itself); three's
+    // physically based lights divide by pi, and these factors keep a lit white texel just under 1
+    sun.color.copy(L.sunColor); sun.intensity = L.sunIntensity * 0.75;
     sun.position.copy(L.sunDir).negate().multiplyScalar(100);
-    ambient.color.copy(L.ambientColor); ambient.intensity = L.ambientIntensity;
+    ambient.color.copy(L.ambientColor); ambient.intensity = L.ambientIntensity * 0.5;
     if (scene.fog) { (scene.fog as THREE.Fog).color.copy(L.fogColor); (scene.fog as THREE.Fog).near = L.fogNear; (scene.fog as THREE.Fog).far = L.fogFar; }
     terrain?.setLighting(L);
   }

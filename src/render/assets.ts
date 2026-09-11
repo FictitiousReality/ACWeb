@@ -172,7 +172,13 @@ export class Assets {
       mat.opacity = 1 - s.translucency;
       mat.depthWrite = false;
     }
-    if (s.luminosity > 0) mat.emissive.copy(mat.color).multiplyScalar(s.luminosity);
+    if (s.luminosity > 0) {
+      // luminosity = the fraction of the texel that is self-lit (unaffected by lighting):
+      // final = texel * ((1 - lum) * lighting + lum). A flat emissive would glow white.
+      const lum = Math.min(1, s.luminosity);
+      if (mat.map) { mat.emissiveMap = mat.map; mat.emissive.setScalar(lum); mat.color.multiplyScalar(1 - lum); }
+      else { mat.emissive.copy(mat.color).multiplyScalar(lum); mat.color.multiplyScalar(1 - lum); }
+    }
     return mat;
   }
 }

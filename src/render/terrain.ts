@@ -191,6 +191,10 @@ export class TerrainRenderer {
         uFogNear: { value: 600 },
         uFogFar: { value: 1400 },
       },
+      // Building floors sit exactly on the terrain plane; bias terrain back so floors win.
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 2,
     });
   }
 

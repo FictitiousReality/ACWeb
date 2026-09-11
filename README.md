@@ -13,7 +13,12 @@ code and from ACViewer. Educational, non-commercial.
 - DAT container + record parsers, verified byte-exact against the end-of-retail dats (`deno task verify`)
 - Outdoor landblocks: terrain with the client's TexMerge texture blending and roads,
   static objects, buildings, procedural scenery
-- Not yet: dungeons / building interiors (EnvCells), animation, clothing, water/sky, networking
+- Interiors: building rooms and dungeons (EnvCells) with furniture; camera-in-cell
+  detection via the cell BSP and portal-style visibility (current cell + visible cells,
+  outdoors only through cells flagged as seen-from-outside)
+- Animation: motion tables + animation sequencing; model viewer plays any motion of a Setup
+- Not yet: server-spawned objects (doors, NPCs, chests, lifestones come from the server),
+  clothing/palette swaps, water/sky, collision, networking
 
 ## Running
 
@@ -27,6 +32,8 @@ deno task serve ~/path/to/dats     # http://127.0.0.1:8000  (serves /dat/* with 
 Open http://127.0.0.1:8000/?auto=1, or pick the two dat files with the
 "local files" source. Enter a landblock id (e.g. `A9B4` for Holtburn) and a
 radius, then click Load. Drag or click the canvas to look, WASD to move.
+Dungeon landblocks (e.g. `0002`) start the camera inside the first cell.
+The model viewer loads a Setup id (e.g. `020000CE`) and plays its motions.
 
 Other tasks: `deno task verify` (parser check), `deno task scenery A9B4`
 (scenery placement stats).

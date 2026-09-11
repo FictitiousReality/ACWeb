@@ -10,6 +10,7 @@ import { BLOCK_LENGTH, landblockId } from "../src/world/terrain.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $("status");
+const cellLabel = $("cell");
 const log = (s: string) => { status.textContent = s; console.log(s); };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -40,6 +41,10 @@ let objects: ObjectRenderer | null = null;
 let envcells: EnvCellRenderer | null = null;
 const world = new THREE.Group();
 scene.add(world);
+const outdoor = new THREE.Group();
+const indoor = new THREE.Group();
+world.add(outdoor, indoor);
+let insideCell: number | null = null;
 const animated: AnimatedModel[] = [];
 let viewed: AnimatedModel | null = null;
 
@@ -72,6 +77,10 @@ async function load() {
       envcells = new EnvCellRenderer(assets, objects);
     }
     world.clear();
+    outdoor.clear();
+    indoor.clear();
+    world.add(outdoor, indoor);
+    envcells!.cells.clear();
     const showScenery = $<HTMLInputElement>("scenery").checked;
     if (showScenery) await objects!.preloadScenes();
     const center = parseInt($<HTMLInputElement>("lb").value.replace(/^0x/i, "").slice(0, 4), 16);
@@ -93,25 +102,25 @@ async function load() {
           const dungeon = await objects!.isDungeon(id);
           const mesh = dungeon ? null : await terrain!.landblock(id);
           if (!mesh && !dungeon) return;
-          if (mesh) world.add(mesh);
+          if (mesh) outdoor.add(mesh);
           blocks++;
           if (showObjects) {
             const g = await objects!.landblockObjects(id);
             objs += g.children.length;
-            world.add(g);
+            outdoor.add(g);
           }
           if (showInteriors) {
             const r = await envcells!.landblockCells(id);
             cellCount += r.count;
             if (id === landblockId(cx, cy) && r.first) firstCell = r.first;
-            world.add(r.group);
+            indoor.add(r.group);
           }
           if (showScenery && !dungeon) {
             const geo = terrain!.geometries.get(id);
             if (geo) {
               const g = await objects!.scenery(id, geo);
               objs += g.children.reduce((n: number, c: THREE.Object3D) => n + ((c as THREE.InstancedMesh).count ?? 1), 0);
-              world.add(g);
+              outdoor.add(g);
             }
           }
           log(`loaded ${blocks} landblocks, ${objs} objects... ${(performance.now() - t0).toFixed(0)} ms`);
@@ -155,6 +164,7 @@ async function viewModel() {
     }
     world.clear();
     animated.length = 0;
+    envcells!.cells.clear();
     const id = parseInt($<HTMLInputElement>("model").value.replace(/^0x/i, ""), 16);
     const m = await AnimatedModel.create(assets, objects!, id);
     if (!m) { log(`no setup ${id.toString(16)}`); return; }
@@ -206,6 +216,17 @@ function frame(now: number) {
   last = now;
   fly.update(dt);
   for (const m of animated) m.update(dt);
+  if (envcells && envcells.cells.size > 0) {
+    const cur = envcells.applyVisibility(camera.position, outdoor);
+    const id = cur ? cur.id : null;
+    if (id !== insideCell) {
+      insideCell = id;
+      const dark = cur !== null && !outdoor.visible;
+      scene.background = dark ? new THREE.Color(0x000000) : new THREE.Color(0x9fb4c8);
+      scene.fog = dark ? null : new THREE.Fog(0x9fb4c8, 600, 1400);
+      cellLabel.textContent = cur ? `cell ${cur.id.toString(16).toUpperCase().padStart(8, "0")}` : "";
+    }
+  }
   camera.updateMatrixWorld();
   terrain?.updateLight(camera, sunDir);
   renderer.render(scene, camera);

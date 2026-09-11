@@ -21,6 +21,7 @@ export interface WorldObject {
   wcid: number;
   setup: number;
   mtable: number;
+  petable: number;
   scale: number;
   position: Position | null;
   parent: number | null;
@@ -48,6 +49,10 @@ export interface ClientEvents {
   onObjectPosition?(obj: WorldObject, update: PositionUpdate): void;
   onObjectMotion?(obj: WorldObject, movement: MovementData): void;
   onObjectDelete?(guid: number): void;
+  /** PlayEffect: run PlayScript `script` (spell wind-up, buff, etc.) on an object with intensity `mod` */
+  onPlayEffect?(obj: WorldObject, script: number, mod: number): void;
+  /** PlayScriptId: run a specific physics script (0x33) on an object */
+  onPlayScriptId?(obj: WorldObject, scriptId: number): void;
   onPlayerTeleport?(): void;
   /** the object's appearance (ObjDesc) changed, e.g. clothing worn/removed */
   onAppearance?(obj: WorldObject): void;
@@ -259,7 +264,7 @@ export class GameClient {
       case Opcode.UpdateObject: {
         const co = parseCreateObject(r);
         const obj: WorldObject = {
-          guid: co.guid, name: co.weenie.name, wcid: co.weenie.wcid, setup: co.physics.setup ?? 0, mtable: co.physics.mtable ?? 0,
+          guid: co.guid, name: co.weenie.name, wcid: co.weenie.wcid, setup: co.physics.setup ?? 0, mtable: co.physics.mtable ?? 0, petable: co.physics.petable ?? 0,
           scale: co.physics.scale ?? 1, position: co.physics.position ?? null, parent: co.physics.parent?.id ?? co.weenie.wielder ?? co.weenie.container ?? null,
           container: co.weenie.container ?? null, wielder: co.weenie.wielder ?? null, wieldedLocation: co.weenie.wieldedLocation ?? 0,
           stackSize: co.weenie.stackSize ?? 1, value: co.weenie.value ?? 0, icon: co.weenie.icon,
@@ -279,6 +284,18 @@ export class GameClient {
         if (existed) this.events.onObjectUpdate?.(obj);
         else this.events.onObjectCreate?.(obj);
         if (obj.container === this.playerGuid || obj.wielder === this.playerGuid || this.isInMyPack(obj)) this.events.onInventory?.();
+        break;
+      }
+      case Opcode.PlayEffect: {
+        const guid = r.u32(), script = r.u32(), mod = r.f32();
+        const obj = this.objects.get(guid);
+        if (obj) this.events.onPlayEffect?.(obj, script, mod);
+        break;
+      }
+      case Opcode.PlayScriptId: {
+        const guid = r.u32(), scriptId = r.u32();
+        const obj = this.objects.get(guid);
+        if (obj) this.events.onPlayScriptId?.(obj, scriptId);
         break;
       }
       case Opcode.ObjectDelete: {

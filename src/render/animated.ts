@@ -1,3 +1,4 @@
+import type { ParticleSystem } from "./particles.ts";
 /**
  * An animated Setup instance: one Object3D per part, driven by an AnimSequence
  * and a MotionTable. Part transforms are object-space (AC PartArray semantics).
@@ -18,6 +19,9 @@ export class AnimatedModel {
   motionTable: MotionTable | null = null;
   stance: number = MotionStance.NonCombat;
   currentMotion = 0;
+  /** physics script table override from the server's PhysicsDesc (petable) */
+  scriptTable = 0;
+  private particleSystem: ParticleSystem | null = null;
   private animCache = new Map<number, Animation | null>();
 
   private constructor(private assets: Assets, readonly setup: Setup) {}
@@ -57,6 +61,7 @@ export class AnimatedModel {
     const placement = setup.placementFrames.get(Placement.Resting) ?? setup.placementFrames.get(Placement.Default) ??
       setup.placementFrames.values().next().value ?? null;
     m.sequence.placement = placement;
+    m.scriptTable = setup.defaultScriptTable;
     const mtableId = motionTableId || setup.defaultMotionTable;
     if (mtableId) {
       m.motionTable = await assets.portal.get(mtableId, parseMotionTable);
@@ -131,6 +136,28 @@ export class AnimatedModel {
     this.stance = stance;
     this.currentMotion = command;
     return true;
+  }
+
+  /** Route animation hooks (CreateParticle etc.) to a particle system. */
+  attachParticles(ps: ParticleSystem, scriptTable = 0) {
+    this.particleSystem = ps;
+    if (scriptTable) this.scriptTable = scriptTable;
+    this.sequence.onHooks = (hooks) => { for (const h of hooks) ps.handleHook(this, h); };
+  }
+
+  /** Play a PlayScript (server PlayEffect) or, when the table lacks it, the setup's default script. */
+  playScript(playScript: number, mod = 1): void {
+    if (!this.particleSystem) return;
+    if (this.scriptTable) this.particleSystem.playScript(this, this.scriptTable, playScript, mod);
+  }
+
+  /** Play a physics script id (0x33) directly. */
+  playScriptId(scriptId: number): void {
+    this.particleSystem?.playScriptId(this, scriptId);
+  }
+
+  dispose(): void {
+    this.particleSystem?.destroyHost(this);
   }
 
   update(dt: number): void {

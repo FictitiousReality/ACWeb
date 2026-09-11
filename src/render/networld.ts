@@ -3,6 +3,7 @@ import * as THREE from "three";
 import type { Assets } from "./assets.ts";
 import type { ObjectRenderer } from "./objects.ts";
 import { AnimatedModel } from "./animated.ts";
+import type { ParticleSystem } from "./particles.ts";
 import type { MovementData, Position, PositionUpdate } from "../net/messages.ts";
 import type { WorldObject } from "../net/client.ts";
 import { commandFromKey } from "../dat/motionenums.ts";
@@ -28,7 +29,7 @@ export class NetWorld {
   readonly entities = new Map<number, Entity>();
   onLog: ((s: string) => void) | null = null;
 
-  constructor(private assets: Assets, private objects: ObjectRenderer) {}
+  constructor(private assets: Assets, private objects: ObjectRenderer, private particles: ParticleSystem | null = null) {}
 
   async create(obj: WorldObject, isPlayer = false): Promise<Entity | null> {
     this.remove(obj.guid);
@@ -43,6 +44,7 @@ export class NetWorld {
       const m = await AnimatedModel.create(this.assets, this.objects, obj.setup, obj.mtable, obj.raw.objDesc);
       if (m) {
         e.model = m;
+        if (this.particles) m.attachParticles(this.particles, obj.petable);
         root.add(m.root);
         if (obj.movement?.state) await this.applyMotion(e, obj.movement);
       }
@@ -60,7 +62,16 @@ export class NetWorld {
     const e = this.entities.get(guid);
     if (!e) return;
     this.group.remove(e.root);
+    e.model?.dispose();
     this.entities.delete(guid);
+  }
+
+  onPlayEffect(obj: WorldObject, script: number, mod: number) {
+    this.entities.get(obj.guid)?.model?.playScript(script, mod);
+  }
+
+  onPlayScriptId(obj: WorldObject, scriptId: number) {
+    this.entities.get(obj.guid)?.model?.playScriptId(scriptId);
   }
 
   applyPosition(e: Entity, p: Position, snap = false) {

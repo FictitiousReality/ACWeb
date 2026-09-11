@@ -13,3 +13,4 @@ export * from "./records/scene.ts";
 export * from "./records/motion.ts";
 export * from "./motionenums.ts";
 export * from "./records/chargen.ts";
+export * from "./records/particles.ts";

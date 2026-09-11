@@ -21,6 +21,8 @@ export class AnimSequence {
   current = -1;
   frameNum = 0;
   placement: AnimationFrame | null = null;
+  /** called with the hooks of each frame the sequence advances past (forward play) */
+  onHooks: ((hooks: AnimationFrame["hooks"]) => void) | null = null;
 
   private static node(anim: Animation, d: AnimData): AnimNode {
     const high = d.highFrame === -1 ? anim.numFrames - 1 : d.highFrame;
@@ -67,7 +69,23 @@ export class AnimSequence {
     if (this.current < 0) return;
     let n = this.nodes[this.current];
     const frametime = n.framerate * dt;
+    const before = Math.floor(this.frameNum);
     this.frameNum += frametime;
+    if (this.onHooks && frametime > 0) {
+      // ACE executes a frame's hooks when the sequence advances past it (Forward or Both)
+      const upto = Math.min(Math.floor(this.frameNum), n.highFrame + 1);
+      for (let f = before; f < upto; f++) {
+        const hooks = n.anim.partFrames[f]?.hooks;
+        if (hooks && hooks.length) this.onHooks(hooks.filter((h) => h.direction >= 0));
+      }
+    } else if (this.onHooks && frametime < 0) {
+      // reversed segments (e.g. spell power-up loops) fire Backward or Both hooks
+      const downto = Math.max(Math.floor(this.frameNum), n.lowFrame - 1);
+      for (let f = before; f > downto; f--) {
+        const hooks = n.anim.partFrames[f]?.hooks;
+        if (hooks && hooks.length) this.onHooks(hooks.filter((h) => h.direction <= 0));
+      }
+    }
     let done = false;
     let leftover = 0;
     if (frametime > 0 && Math.floor(this.frameNum) > n.highFrame) {
@@ -97,13 +115,19 @@ export type AnimLookup = (id: number) => Animation | null;
 /** Resolve the transition (link) + cycle segments for playing `motion` from `current`. */
 export function motionSegments(mt: MotionTable, stance: number, motion: number, current: number): { link: AnimData[]; cycle: AnimData[] } {
   let link: AnimData[] = [];
-  let l = mt.links.get(motionKey(stance, current));
-  let md = l?.get(motion);
-  if (!md) {
-    l = mt.links.get((stance << 16) >>> 0);
-    md = l?.get(motion);
-  }
+  const md = mt.links.get(motionKey(stance, current))?.get(motion);
   if (md) link = md.anims;
+  else {
+    // no direct transition: go through the stance's default motion (ACE MotionTable.do_link)
+    const def = mt.styleDefaults.get(stance);
+    if (def !== undefined && def !== current) {
+      const toDef = mt.links.get(motionKey(stance, current))?.get(def);
+      const fromDef = mt.links.get(motionKey(stance, def))?.get(motion);
+      link = [...(toDef?.anims ?? []), ...(fromDef?.anims ?? [])];
+    } else if (def !== undefined) {
+      link = mt.links.get(motionKey(stance, def))?.get(motion)?.anims ?? [];
+    }
+  }
   const cycle = mt.cycles.get(motionKey(stance, motion))?.anims ?? [];
   return { link, cycle };
 }

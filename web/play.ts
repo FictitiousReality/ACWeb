@@ -5,6 +5,7 @@ import { WorldStreamer } from "../src/render/streamer.ts";
 import { NetWorld, positionToWorld } from "../src/render/networld.ts";
 import { PlayerController } from "../src/render/player.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
+import { ParticleSystem } from "../src/render/particles.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject } from "../src/net/client.ts";
@@ -129,6 +130,7 @@ addEventListener("wheel", (e) => (camDist = Math.max(1.5, Math.min(40, camDist +
 let assets: Assets | null = null;
 let streamer: WorldStreamer | null = null;
 let netWorld: NetWorld | null = null;
+let particles: ParticleSystem | null = null;
 let sky: SkyRenderer | null = null;
 let player: PlayerController | null = null;
 let client: GameClient | null = null;
@@ -150,7 +152,9 @@ async function openDats() {
   streamer.onLog = (s) => log(s, "err");
   await streamer.init();
   scene.add(streamer.outdoor, streamer.indoor);
-  netWorld = new NetWorld(assets, streamer.objects);
+  particles = new ParticleSystem(assets);
+  scene.add(particles.group);
+  netWorld = new NetWorld(assets, streamer.objects, particles);
   scene.add(netWorld.group);
   sky = new SkyRenderer(assets, region);
   await sky.build();
@@ -287,9 +291,11 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onObjectMotion: (o, m) => { if (o.guid !== client!.playerGuid) netWorld?.onMotion(o, m); },
       onPlayerMotion: (m) => { if (player && (m.type === 8 || m.type === 9) && m.moveTo) player.faceHeading(m.moveTo.heading); },
       onObjectDelete: (g) => netWorld?.remove(g),
+      onPlayEffect: (o, sc, mod) => { if (o.guid === client!.playerGuid) player?.model?.playScript(sc, mod); else netWorld?.onPlayEffect(o, sc, mod); },
+      onPlayScriptId: (o, id) => { if (o.guid === client!.playerGuid) player?.model?.playScriptId(id); else netWorld?.onPlayScriptId(o, id); },
       onAppearance: (o) => {
         if (o.guid === client!.playerGuid) {
-          if (player && assets && streamer) AnimatedModel.create(assets, streamer.objects, o.setup, o.mtable, o.raw.objDesc).then((m) => { if (m && player) { if (player.model) player.root.remove(player.model.root); player.setModel(m); } });
+          if (player && assets && streamer) AnimatedModel.create(assets, streamer.objects, o.setup, o.mtable, o.raw.objDesc).then((m) => { if (m && player) { if (player.model) { player.model.dispose(); player.root.remove(player.model.root); } if (particles) m.attachParticles(particles, o.petable); player.setModel(m); } });
         } else netWorld?.create(o).then((e) => { if (e) e.root.userData.guid = o.guid; });
       },
     });
@@ -332,7 +338,7 @@ async function onEnterWorld(guid: number) {
   }
   if (me?.setup) {
     const m = await AnimatedModel.create(assets!, streamer!.objects, me.setup, me.mtable, me.raw.objDesc);
-    if (m) await player.setModel(m);
+    if (m) { if (particles) m.attachParticles(particles, me.petable); await player.setModel(m); }
   }
   log(`entered world as ${me?.name ?? guid.toString(16)}`);
   // objects that arrived before the player entry
@@ -509,6 +515,7 @@ function frame(now: number) {
     statusEl.textContent = `${client?.serverName ?? ""}  cell ${p.cell.toString(16).toUpperCase().padStart(8, "0")}  x ${p.x.toFixed(1)} y ${p.y.toFixed(1)} z ${p.z.toFixed(1)}  objects ${netWorld?.entities.size ?? 0}`;
   }
   netWorld?.update(dt);
+  particles?.update(dt);
   camera.updateMatrixWorld();
   const s = client?.session;
   if (sky && s && s.serverTimeOffset) sky.timeOfDay = timeOfDayFromServerTime(s.clientTime + s.serverTimeOffset, 7620);
@@ -537,5 +544,5 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 (globalThis as unknown as { acweb: unknown }).acweb = {
-  THREE, scene, camera, get sky() { return sky; }, get client() { return client; }, get player() { return player; }, get streamer() { return streamer; }, get netWorld() { return netWorld; }, positionToWorld,
+  THREE, scene, camera, get sky() { return sky; }, get client() { return client; }, get player() { return player; }, get streamer() { return streamer; }, get netWorld() { return netWorld; }, get particles() { return particles; }, positionToWorld,
 };

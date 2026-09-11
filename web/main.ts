@@ -6,6 +6,7 @@ import { EnvCellRenderer, ObjectRenderer } from "../src/render/objects.ts";
 import { FlyCamera } from "../src/render/camera.ts";
 import { SkyRenderer } from "../src/render/sky.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
+import { ParticleSystem } from "../src/render/particles.ts";
 import { MotionCommandNames, MotionStanceNames } from "../src/dat/motionenums.ts";
 import { BLOCK_LENGTH, landblockId } from "../src/world/terrain.ts";
 
@@ -49,6 +50,7 @@ const indoor = new THREE.Group();
 world.add(outdoor, indoor);
 let insideCell: number | null = null;
 const animated: AnimatedModel[] = [];
+let particles: ParticleSystem | null = null;
 let viewed: AnimatedModel | null = null;
 
 async function openDats(): Promise<Assets> {
@@ -173,8 +175,11 @@ async function viewModel() {
     world.clear();
     animated.length = 0;
     envcells!.cells.clear();
-    const id = parseInt($<HTMLInputElement>("model").value.replace(/^0x/i, ""), 16);
-    const m = await AnimatedModel.create(assets, objects!, id);
+    // "setup" or "setup:motiontable" (creatures whose motion table comes from the server, e.g. 02000001:09000001)
+    const [idText, mtText] = $<HTMLInputElement>("model").value.split(":");
+    const id = parseInt(idText.replace(/^0x/i, ""), 16);
+    const m = await AnimatedModel.create(assets, objects!, id, mtText ? parseInt(mtText.replace(/^0x/i, ""), 16) : 0);
+    if (m) { if (!particles) { particles = new ParticleSystem(assets); scene.add(particles.group); } m.attachParticles(particles); }
     if (!m) { log(`no setup ${id.toString(16)}`); return; }
     viewed = m;
     animated.push(m);
@@ -224,6 +229,7 @@ function frame(now: number) {
   last = now;
   fly.update(dt);
   for (const m of animated) m.update(dt);
+  particles?.update(dt);
   if (envcells && envcells.cells.size > 0) {
     const cur = envcells.applyVisibility(camera.position, outdoor);
     const id = cur ? cur.id : null;
@@ -256,6 +262,6 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // debugging handles
-(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load, viewModel, animated };
+(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load, viewModel, animated, get particles() { return particles; } };
 
 if (new URLSearchParams(location.search).get("auto") === "1") load();

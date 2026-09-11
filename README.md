@@ -17,8 +17,8 @@ check the rules of any server before connecting to it.
 - **DAT reader**: container B-tree, chained-sector files, and parsers for
   meshes (GfxObj), multi-part models (Setup), animations, motion tables,
   palettes, textures, surfaces, landblocks, landblock info, indoor cells
-  (EnvCell), environments, regions, scenes, character generation and the skill
-  table. `deno task verify` parses every record of each type in the retail dats
+  (EnvCell), environments, regions, scenes, character generation, the skill
+  table, particle emitters, physics scripts and script tables. `deno task verify` parses every record of each type in the retail dats
   and checks that each parser consumed exactly the file's bytes (885k files).
 - **Outdoor world**: terrain with the client's TexMerge texture blending and
   roads, static objects, buildings, procedural scenery (trees, rocks, shrubs)
@@ -38,6 +38,11 @@ check the rules of any server before connecting to it.
   scrolling clouds) drawn around the camera, with time-of-day keyframed sun,
   ambient and fog driving the lights and terrain shader; Dereth time follows
   the server clock.
+- **Particles**: emitters ported from the client's physics (still, velocity,
+  parabolic, swarm, explode, implode types) drawn as billboards textured from
+  the emitter's hardware GfxObj; created by animation hooks (spell wind-up
+  orbs while casting) and by the server's PlayEffect messages through each
+  object's physics script table (buff, portal and spell effects).
 - **Client UI**: login and character creation, two-ring world streaming
   (full detail near the player, terrain-only to the horizon), third-person
   camera, click-to-target, inventory with the game's icons, tabbed chat with
@@ -47,8 +52,7 @@ check the rules of any server before connecting to it.
 
 Combat, spellcasting, vendors, allegiance, fellowship, housing, water
 surfaces, collision against walls (you walk through them; floors and terrain
-are followed), particle effects (including rain in the Rainy day groups),
-sound.
+are followed), rain particles in the Rainy day groups, sound.
 
 ## Running
 
@@ -84,7 +88,7 @@ command is passed to the server.
 - `src/dat/` — dat reader: byte sources (Deno file, browser Blob, HTTP Range), container, record parsers
 - `src/world/` — pure data transforms: texture decoding, terrain geometry and blending, mesh building, scenery placement, cell tests, animation sequencing
 - `src/net/` — AC network protocol: packet codec, checksum/ISAAC, session, message codecs, game client
-- `src/render/` — Three.js side: asset cache, terrain shader, object placement, animated models, world streaming, networked entities, player controller
+- `src/render/` — Three.js side: asset cache, terrain shader, object placement, animated models, particles, world streaming, networked entities, player controller
 - `src/tools/` — Deno tools: verify, scenery stats, server probe, dev server, relay
 - `web/` — `index.html` (viewer), `play.html` (client), bundles in `dist/`
 
@@ -193,6 +197,20 @@ ACViewer and from testing against the real files and a real server.
 - Dereth time: a day is 7620 ticks with the epoch at tick 3600 of the day, so
   timeOfDay = ((ticks + 3600) mod 7620) / 7620; the server's TimeSync packets
   carry the ticks.
+- Particles: an emitter (0x32) says how to spawn sprites (birthrate, lifespan,
+  offset, A/B/C motion vectors with min/max magnitudes, scale and translucency
+  ramps, parent-local or world-fixed). Emitters are started by CreateParticle
+  hooks in animation frames (a hook runs when the sequence passes its frame,
+  forward-only hooks on forward segments, backward-only on reversed ones) and
+  by physics scripts (0x33: hooks at start times), which a script table (0x34)
+  maps from a PlayScript id; the server's PlayEffect message carries the object,
+  PlayScript and an intensity mod, and the table entry with the largest mod not
+  above the requested one wins. The sprite texture is the first surface of the
+  emitter's hardware GfxObj, sized 1.8x the mesh extents, additive when the
+  surface says so. Spell wind-ups are MagicPowerUp motions whose animation
+  frames carry the hooks; the cast gestures themselves hold a pose (framerate 0
+  cycles). When a motion table has no transition from the current motion,
+  link through the stance's default motion (ACE's do_link).
 - Region fog runs to 2400 units by day; cap it inside the loaded terrain
   distance or the edge of the world shows as a void. Two streaming rings
   (detail near, terrain-only far) give a kilometre of horizon cheaply.

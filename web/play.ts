@@ -444,6 +444,12 @@ function sendChat(text: string) {
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
   else if (cmd === "blink") blink();
+  else if (cmd === "fly") {
+    if (player) {
+      if (player.fly) { player.land(); log("fly off: back on the ground", "c-system"); }
+      else { player.fly = true; log("fly on: R rises, F descends, /fly again to land. The server warns above 10 units over ground.", "c-system"); }
+    }
+  }
   else if (cmd === "fxspeed") { const v = parseFloat(rest); if (particles && v > 0 && v <= 4) { particles.timeScale = v; log(`particle effects run at ${v}x`, "c-system"); } else log(`usage: /fxspeed 0.5   (current ${particles?.timeScale ?? 1}x)`, "c-error"); }
   else if (cmd === "noclip" || cmd === "ghost") { if (player) { player.noclip = !player.noclip; log(`noclip ${player.noclip ? "on: walking through walls" : "off: walls are solid"}`, "c-system"); } }
   else if (cmd === "ls" || cmd === "lifestone") client.recall("lifestone");

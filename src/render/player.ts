@@ -31,6 +31,16 @@ export class PlayerController {
   contact = true;
   /** walk through walls (/noclip) */
   noclip = false;
+  /** ignore floors; R rises, F descends; reports go out airborne (/fly) */
+  fly = false;
+  private flySpeed = 4;
+
+  /** Leave fly mode and drop onto the nearest floor below (or the terrain). */
+  land() {
+    this.fly = false;
+    const floor = this.streamer.floorAt(this.pos.x, this.pos.y, this.pos.z, 1.2, 600) ?? this.streamer.heightAt(this.pos.x, this.pos.y);
+    if (floor !== null) this.pos.z = floor;
+  }
   /** collision radius against walls */
   radius = 0.35;
 
@@ -190,7 +200,11 @@ export class PlayerController {
     if (cmd === Cmd.Ready && left !== right) { cmd = left ? Cmd.TurnLeft : Cmd.TurnRight; animCmd = Cmd.TurnRight; animSpeed = left ? -turnSpeed : turnSpeed; }
 
     if ((vx !== 0 || vy !== 0) && !this.noclip) [vx, vy] = this.slideAlongWalls(vx, vy, dt);
-    if (vx !== 0 || vy !== 0) {
+    if (this.fly) {
+      // free flight: no floor snapping, vertical keys, position reported as airborne
+      const vz = (k.has("KeyR") ? 1 : 0) - (k.has("KeyF") ? 1 : 0);
+      this.pos.x += vx * dt; this.pos.y += vy * dt; this.pos.z += vz * this.flySpeed * rate * dt;
+    } else if (vx !== 0 || vy !== 0) {
       const nx = this.pos.x + vx * dt, ny = this.pos.y + vy * dt;
       const floor = this.streamer.floorAt(nx, ny, this.pos.z);
       // move if we found a floor within step range (or nothing is loaded yet and we're outdoors on terrain)
@@ -227,10 +241,10 @@ export class PlayerController {
       if (sr && !sl) m.sidestep = Cmd.SideStepRight;
       else if (sl && !sr) m.sidestep = Cmd.SideStepLeft;
       if (left !== right) { m.turn = left ? Cmd.TurnLeft : Cmd.TurnRight; m.turnSpeed = 1; }
-      this.client.sendMoveToState(m, this.position(), this.contact);
+      this.client.sendMoveToState(m, this.position(), this.contact && !this.fly);
       this.lastReport = now;
-    } else if (cmd !== Cmd.Ready && now - this.lastReport > 1000) {
-      this.client.sendAutonomousPosition(this.position(), this.contact);
+    } else if ((cmd !== Cmd.Ready || this.fly) && now - this.lastReport > 1000) {
+      this.client.sendAutonomousPosition(this.position(), this.contact && !this.fly);
       this.lastReport = now;
     }
   }

@@ -152,7 +152,7 @@ async function openDats() {
   streamer.onLog = (s) => log(s, "err");
   await streamer.init();
   scene.add(streamer.outdoor, streamer.indoor);
-  particles = new ParticleSystem(assets);
+  particles = new ParticleSystem(assets, streamer.objects);
   scene.add(particles.group);
   netWorld = new NetWorld(assets, streamer.objects, particles);
   netWorld.groundAt = (x, y, z) => streamer!.floorAt(x, y, z);

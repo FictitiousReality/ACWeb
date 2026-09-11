@@ -45,9 +45,11 @@ check the rules of any server before connecting to it.
   the server clock.
 - **Particles**: emitters ported from the client's physics (still, velocity,
   parabolic, swarm, explode, implode types) drawn as billboards textured from
-  the emitter's hardware GfxObj; created by animation hooks (spell wind-up
-  orbs while casting) and by the server's PlayEffect messages through each
-  object's physics script table (buff, portal and spell effects).
+  the emitter's hardware GfxObj, or as clones of a real GfxObj mesh; created by
+  animation hooks (spell wind-up orbs while casting), by the server's
+  PlayEffect messages through each object's physics script table (buff and
+  spell effects), and by each Setup's default script (portal vortices, which
+  loop by calling themselves).
 - **Client UI**: login and character creation, two-ring world streaming
   (full detail near the player, terrain-only to the horizon), third-person
   camera, click-to-target, inventory with the game's icons, tabbed chat with
@@ -233,6 +235,16 @@ ACViewer and from testing against the real files and a real server.
   frames carry the hooks; the cast gestures themselves hold a pose (framerate 0
   cycles). When a motion table has no transition from the current motion,
   link through the stance's default motion (ACE's do_link).
+- Portals are a single clip-mapped quad; the swirl is the Setup's default
+  physics script (2161 of the 5935 Setups have one: torches, fountains,
+  portals...). The script creates two emitters, one with sprite particles
+  (hardware GfxObj) and one with mesh particles (a GfxObj and no hardware
+  GfxObj), and ends with a CallPES hook that starts the same script again 2.7
+  s later, which is how it loops. The server only sends a PhysicsDesc
+  DefaultScript (a PlayScript through the script table) when the weenie has
+  one; the Setup script runs regardless. Sprite size is the hardware GfxObj
+  quad's own extents times the particle scale (ACViewer's extra 1.8 factor is
+  a guess in its source).
 - Region fog runs to 2400 units by day; cap it inside the loaded terrain
   distance or the edge of the world shows as a void. Two streaming rings
   (detail near, terrain-only far) give a kilometre of horizon cheaply.

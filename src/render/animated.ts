@@ -178,6 +178,8 @@ export class AnimatedModel {
     this.particleSystem = ps;
     if (scriptTable) this.scriptTable = scriptTable;
     this.sequence.onHooks = (hooks) => { for (const h of hooks) ps.handleHook(this, h); };
+    // the Setup's own default script (portal swirls, torch flames, fountains) starts with the object
+    if (this.setup.defaultScript) ps.playScriptId(this, this.setup.defaultScript);
   }
 
   /** Play a PlayScript (server PlayEffect) or, when the table lacks it, the setup's default script. */

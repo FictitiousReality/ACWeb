@@ -173,13 +173,14 @@ async function viewModel() {
       envcells = new EnvCellRenderer(assets, objects);
     }
     world.clear();
+    for (const old of animated) old.dispose(); // stop their particle emitters and scripts
     animated.length = 0;
     envcells!.cells.clear();
     // "setup" or "setup:motiontable" (creatures whose motion table comes from the server, e.g. 02000001:09000001)
     const [idText, mtText] = $<HTMLInputElement>("model").value.split(":");
     const id = parseInt(idText.replace(/^0x/i, ""), 16);
     const m = await AnimatedModel.create(assets, objects!, id, mtText ? parseInt(mtText.replace(/^0x/i, ""), 16) : 0);
-    if (m) { if (!particles) { particles = new ParticleSystem(assets); scene.add(particles.group); } m.attachParticles(particles); }
+    if (m) { if (!particles) { particles = new ParticleSystem(assets, objects!); scene.add(particles.group); } m.attachParticles(particles); }
     if (!m) { log(`no setup ${id.toString(16)}`); return; }
     viewed = m;
     animated.push(m);

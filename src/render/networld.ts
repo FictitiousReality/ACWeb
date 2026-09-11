@@ -80,7 +80,10 @@ export class NetWorld {
       const m = await AnimatedModel.create(this.assets, this.objects, obj.setup, obj.mtable, obj.raw.objDesc);
       if (m) {
         e.model = m;
-        if (this.particles) m.attachParticles(this.particles, obj.petable);
+        if (this.particles) {
+          m.attachParticles(this.particles, obj.petable);
+          if ((obj.physicsState & 0x80000) && obj.defaultScript) m.playScript(obj.defaultScript, obj.defaultScriptIntensity || 1);
+        }
         root.add(m.root);
         if (obj.movement) await this.applyMotion(e, obj.movement);
       }

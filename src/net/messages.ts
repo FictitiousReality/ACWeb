@@ -228,6 +228,9 @@ export interface PhysicsDesc {
   scale?: number;
   translucency?: number;
   velocity?: [number, number, number];
+  /** PlayScript run through the object's script table while PhysicsState.HasDefaultScript is set */
+  defaultScript?: number;
+  defaultScriptIntensity?: number;
   sequences: number[];
 }
 export function parsePhysicsDesc(r: BinReader): PhysicsDesc {
@@ -260,8 +263,8 @@ export function parsePhysicsDesc(r: BinReader): PhysicsDesc {
   if (flags & 0x4) d.velocity = [r.f32(), r.f32(), r.f32()];
   if (flags & 0x8) { r.f32(); r.f32(); r.f32(); }
   if (flags & 0x10) { r.f32(); r.f32(); r.f32(); }
-  if (flags & 0x2000) r.u32();
-  if (flags & 0x4000) r.f32();
+  if (flags & 0x2000) d.defaultScript = r.u32();
+  if (flags & 0x4000) d.defaultScriptIntensity = r.f32();
   for (let i = 0; i < 9; i++) d.sequences.push(r.u16());
   alignReader(r);
   return d;

@@ -22,6 +22,9 @@ export interface WorldObject {
   setup: number;
   mtable: number;
   petable: number;
+  physicsState: number;
+  defaultScript: number;
+  defaultScriptIntensity: number;
   scale: number;
   position: Position | null;
   parent: number | null;
@@ -265,6 +268,7 @@ export class GameClient {
         const co = parseCreateObject(r);
         const obj: WorldObject = {
           guid: co.guid, name: co.weenie.name, wcid: co.weenie.wcid, setup: co.physics.setup ?? 0, mtable: co.physics.mtable ?? 0, petable: co.physics.petable ?? 0,
+          physicsState: co.physics.state, defaultScript: co.physics.defaultScript ?? 0, defaultScriptIntensity: co.physics.defaultScriptIntensity ?? 1,
           scale: co.physics.scale ?? 1, position: co.physics.position ?? null, parent: co.physics.parent?.id ?? co.weenie.wielder ?? co.weenie.container ?? null,
           container: co.weenie.container ?? null, wielder: co.weenie.wielder ?? null, wieldedLocation: co.weenie.wieldedLocation ?? 0,
           stackSize: co.weenie.stackSize ?? 1, value: co.weenie.value ?? 0, icon: co.weenie.icon,

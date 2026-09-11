@@ -95,6 +95,9 @@ precision highp sampler2DArray;
 uniform sampler2DArray uOverlays;
 uniform sampler2DArray uAlphas;
 uniform vec3 uLightDir;
+uniform vec3 uSunColor;
+uniform float uSunIntensity;
+uniform vec3 uAmbientColor;
 uniform float uAmbient;
 uniform vec3 uFogColor;
 uniform float uFogNear;
@@ -153,8 +156,8 @@ void main() {
   vec3 ovMasked = clamp(ov.rgb * (ov.a * (1.0 - rd.a)), 0.0, 1.0);
   vec3 roadMasked = rd.rgb * rd.a;
   vec3 color = baseMasked + ovMasked + roadMasked;
-  float light = clamp(dot(normalize(vNormal), -uLightDir), 0.0, 1.0) * (1.0 - uAmbient) + uAmbient;
-  color *= light;
+  float ndl = clamp(dot(normalize(vNormal), -uLightDir), 0.0, 1.0);
+  color *= uSunColor * (ndl * uSunIntensity) + uAmbientColor * uAmbient;
   float fog = clamp((vDist - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
   color = mix(color, uFogColor, fog);
   outColor = linearToOutputTexel(vec4(color, 1.0));
@@ -186,6 +189,9 @@ export class TerrainRenderer {
         uOverlays: { value: this.overlays.texture },
         uAlphas: { value: this.alphas.texture },
         uLightDir: { value: new THREE.Vector3(0.4, 0.3, -0.85).normalize() },
+        uSunColor: { value: new THREE.Color(1, 1, 1) },
+        uSunIntensity: { value: 0.6 },
+        uAmbientColor: { value: new THREE.Color(1, 1, 1) },
         uAmbient: { value: 0.45 },
         uFogColor: { value: new THREE.Color(0x9fb4c8) },
         uFogNear: { value: 600 },
@@ -202,6 +208,18 @@ export class TerrainRenderer {
   updateLight(camera: THREE.Camera, worldDir: THREE.Vector3) {
     const v = worldDir.clone().transformDirection(camera.matrixWorldInverse);
     (this.material.uniforms.uLightDir.value as THREE.Vector3).copy(v);
+  }
+
+  /** Apply sky lighting/fog (sun & ambient colors are linear THREE.Colors, intensities are multipliers). */
+  setLighting(l: { sunColor: THREE.Color; sunIntensity: number; ambientColor: THREE.Color; ambientIntensity: number; fogColor: THREE.Color; fogNear: number; fogFar: number }) {
+    const u = this.material.uniforms;
+    (u.uSunColor.value as THREE.Color).copy(l.sunColor);
+    u.uSunIntensity.value = l.sunIntensity * 0.45;
+    (u.uAmbientColor.value as THREE.Color).copy(l.ambientColor);
+    u.uAmbient.value = l.ambientIntensity * 0.6;
+    (u.uFogColor.value as THREE.Color).copy(l.fogColor);
+    u.uFogNear.value = l.fogNear;
+    u.uFogFar.value = l.fogFar;
   }
 
   landblock(id: number): Promise<THREE.Mesh | null> {

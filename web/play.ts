@@ -5,6 +5,7 @@ import { WorldStreamer } from "../src/render/streamer.ts";
 import { NetWorld, positionToWorld } from "../src/render/networld.ts";
 import { PlayerController } from "../src/render/player.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
+import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject } from "../src/net/client.ts";
 import { CHARGEN_ID, SKILLTABLE_ID, parseCharGen, parseSkillTable } from "../src/dat/mod.ts";
@@ -104,7 +105,8 @@ camera.up.set(0, 0, 1);
 const sunDir = new THREE.Vector3(0.4, 0.3, -0.85).normalize();
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.copy(sunDir.clone().negate().multiplyScalar(100));
-scene.add(sun, new THREE.AmbientLight(0xffffff, 0.9));
+const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+scene.add(sun, ambient);
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
@@ -127,6 +129,7 @@ addEventListener("wheel", (e) => (camDist = Math.max(1.5, Math.min(40, camDist +
 let assets: Assets | null = null;
 let streamer: WorldStreamer | null = null;
 let netWorld: NetWorld | null = null;
+let sky: SkyRenderer | null = null;
 let player: PlayerController | null = null;
 let client: GameClient | null = null;
 let iterations = { portal: 2072, cell: 982, language: 994 };
@@ -149,6 +152,10 @@ async function openDats() {
   scene.add(streamer.outdoor, streamer.indoor);
   netWorld = new NetWorld(assets, streamer.objects);
   scene.add(netWorld.group);
+  sky = new SkyRenderer(assets, region);
+  await sky.build();
+  scene.background = null;
+  renderer.autoClear = false;
   log(`dats ready (portal ${iterations.portal}, cell ${iterations.cell}, language ${iterations.language})`);
   charGen = await portal.get(CHARGEN_ID, parseCharGen);
   skillTable = await portal.get(SKILLTABLE_ID, parseSkillTable);
@@ -503,12 +510,28 @@ function frame(now: number) {
   }
   netWorld?.update(dt);
   camera.updateMatrixWorld();
+  const s = client?.session;
+  if (sky && s && s.serverTimeOffset) sky.timeOfDay = timeOfDayFromServerTime(s.clientTime + s.serverTimeOffset, 7620);
+  if (sky) {
+    sky.update(dt, camera);
+    const L = sky.lighting;
+    sunDir.copy(L.sunDir);
+    sun.color.copy(L.sunColor); sun.intensity = L.sunIntensity;
+    sun.position.copy(L.sunDir).negate().multiplyScalar(100);
+    ambient.color.copy(L.ambientColor); ambient.intensity = L.ambientIntensity;
+    (scene.fog as THREE.Fog).color.copy(L.fogColor); (scene.fog as THREE.Fog).near = L.fogNear; (scene.fog as THREE.Fog).far = L.fogFar;
+    streamer?.terrain.setLighting(L);
+  }
   streamer?.terrain.updateLight(camera, sunDir);
+  renderer.clear();
+  const outdoorsVisible = !streamer || streamer.outdoor.visible;
+  if (sky && outdoorsVisible) sky.render(renderer);
+  else if (!outdoorsVisible) { renderer.setClearColor(0x000000); renderer.clear(); }
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 (globalThis as unknown as { acweb: unknown }).acweb = {
-  THREE, scene, camera, get client() { return client; }, get player() { return player; }, get streamer() { return streamer; }, get netWorld() { return netWorld; }, positionToWorld,
+  THREE, scene, camera, get sky() { return sky; }, get client() { return client; }, get player() { return player; }, get streamer() { return streamer; }, get netWorld() { return netWorld; }, positionToWorld,
 };

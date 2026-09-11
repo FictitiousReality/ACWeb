@@ -4,6 +4,7 @@ import { Assets } from "../src/render/assets.ts";
 import { TerrainRenderer } from "../src/render/terrain.ts";
 import { EnvCellRenderer, ObjectRenderer } from "../src/render/objects.ts";
 import { FlyCamera } from "../src/render/camera.ts";
+import { SkyRenderer } from "../src/render/sky.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
 import { MotionCommandNames, MotionStanceNames } from "../src/dat/motionenums.ts";
 import { BLOCK_LENGTH, landblockId } from "../src/world/terrain.ts";
@@ -27,7 +28,8 @@ const fly = new FlyCamera(camera, renderer.domElement);
 const sunDir = new THREE.Vector3(0.4, 0.3, -0.85).normalize();
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.copy(sunDir.clone().negate().multiplyScalar(100));
-scene.add(sun, new THREE.AmbientLight(0xffffff, 0.9));
+const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+scene.add(sun, ambient);
 
 addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
@@ -39,6 +41,7 @@ let assets: Assets | null = null;
 let terrain: TerrainRenderer | null = null;
 let objects: ObjectRenderer | null = null;
 let envcells: EnvCellRenderer | null = null;
+let sky: SkyRenderer | null = null;
 const world = new THREE.Group();
 scene.add(world);
 const outdoor = new THREE.Group();
@@ -75,6 +78,10 @@ async function load() {
       terrain = new TerrainRenderer(assets, await assets.region());
       objects = new ObjectRenderer(assets);
       envcells = new EnvCellRenderer(assets, objects);
+      sky = new SkyRenderer(assets, await assets.region());
+      await sky.build();
+      scene.background = null;
+      renderer.autoClear = false;
     }
     world.clear();
     outdoor.clear();
@@ -152,6 +159,7 @@ async function load() {
 }
 
 $("go").addEventListener("click", load);
+$<HTMLSelectElement>("weather").addEventListener("change", async (e: Event) => { const sk = sky as SkyRenderer | null; if (sk) await sk.setWeather((e.target as HTMLSelectElement).value); });
 
 /** Model viewer: show one animated Setup at the origin and list its motions. */
 async function viewModel() {
@@ -228,7 +236,20 @@ function frame(now: number) {
     }
   }
   camera.updateMatrixWorld();
+  if (sky) {
+    sky.timeOfDay = Number($<HTMLInputElement>("tod").value) / 1000;
+    sky.update(dt, camera);
+    const L = sky.lighting;
+    sunDir.copy(L.sunDir);
+    sun.color.copy(L.sunColor); sun.intensity = L.sunIntensity;
+    sun.position.copy(L.sunDir).negate().multiplyScalar(100);
+    ambient.color.copy(L.ambientColor); ambient.intensity = L.ambientIntensity;
+    if (scene.fog) { (scene.fog as THREE.Fog).color.copy(L.fogColor); (scene.fog as THREE.Fog).near = L.fogNear; (scene.fog as THREE.Fog).far = L.fogFar; }
+    terrain?.setLighting(L);
+  }
   terrain?.updateLight(camera, sunDir);
+  renderer.clear();
+  if (sky && world.children.length && (insideCell === null || (scene.fog !== null))) sky.render(renderer);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

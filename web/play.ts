@@ -283,6 +283,9 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onChat: (text, kind, sender) => {
         const [k, sub] = kind.split(":");
         const n = Number(sub);
+        // the server echoes our own speech and emotes back; we already printed them when sent
+        const me = myName();
+        if (me && ((k === "speech" && sender === me) || (k === "emote" && text.startsWith(me + " ")))) return;
         if (k === "speech") log(`${sender} says, "${text}"`, "c-speech", sender);
         else if (k === "tell") { lastTeller = sender ?? lastTeller; log(`${sender} tells you, "${text}"`, "c-tell", sender); }
         else if (k === "emote") log(text, "c-emote");

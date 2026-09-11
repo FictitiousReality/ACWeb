@@ -45,6 +45,7 @@
     #invActions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
     #invActions button { font: inherit; }
     #status { position: fixed; top: 8px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; opacity: .85; z-index: 3; white-space: pre; }
+    #tools { position: fixed; top: 8px; right: 10px; z-index: 3; }
     #help { position: fixed; right: 10px; bottom: 8px; opacity: .6; z-index: 3; text-align: right; font-size: 12px; }
     .err { color: #f77; }
   </style>
@@ -76,6 +77,7 @@
     </form>
   </div>
   <div id="status"></div>
+  <div id="tools"><button id="btnBlink" type="button" title="jump one landblock in the direction you face (/blink)">Blink ▶</button></div>
   <div id="target"><span id="targetName"></span><button id="btnUse" type="button">Use (U)</button><button id="btnGive" type="button">Give item</button><button id="btnClear" type="button">×</button></div>
   <div id="inv"><h3>Inventory (I)</h3><div id="invList"></div><div id="invActions"><button id="invUse" type="button">Use</button><button id="invGive" type="button">Give to target</button><button id="invDrop" type="button">Drop</button></div></div>
   <div id="hud">

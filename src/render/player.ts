@@ -98,6 +98,27 @@ export class PlayerController {
     };
   }
 
+  /**
+   * Debug aid: jump one landblock (192 units) in the facing direction onto the terrain there
+   * and report it. ACE accepts any position in the current or an adjacent block (its speed
+   * check only rejects jumps farther than 50 units into a block more than one away), so
+   * blocks must be taken one at a time. Returns false if that terrain isn't loaded yet.
+   */
+  blink(): boolean {
+    const fx = -Math.sin(this.yaw), fy = Math.cos(this.yaw);
+    const nx = this.pos.x + fx * BLOCK_LENGTH, ny = this.pos.y + fy * BLOCK_LENGTH;
+    const h = this.streamer.heightAt(nx, ny);
+    if (h === null) return false;
+    this.pos.set(nx, ny, h);
+    this.root.position.copy(this.pos);
+    this.lastCell = 0;
+    const p = this.position();
+    this.streamer.setPlayerCell(p.cell);
+    this.client.sendAutonomousPosition(p, true);
+    this.lastMotion = ""; // re-send the movement state from the new spot
+    return true;
+  }
+
   /** Face an AC heading (degrees, 0 = north, clockwise) — used when the server turns us to an NPC. */
   faceHeading(headingDeg: number) {
     this.yaw = -headingDeg * Math.PI / 180;

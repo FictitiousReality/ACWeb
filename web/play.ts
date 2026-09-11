@@ -441,6 +441,7 @@ function sendChat(text: string) {
   else if (cmd === "lfg") channelSay(4, rest);
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
+  else if (cmd === "blink") blink();
   else if (cmd === "fxspeed") { const v = parseFloat(rest); if (particles && v > 0 && v <= 4) { particles.timeScale = v; log(`particle effects run at ${v}x`, "c-system"); } else log(`usage: /fxspeed 0.5   (current ${particles?.timeScale ?? 1}x)`, "c-error"); }
   else if (cmd === "noclip" || cmd === "ghost") { if (player) { player.noclip = !player.noclip; log(`noclip ${player.noclip ? "on: walking through walls" : "off: walls are solid"}`, "c-system"); } }
   else if (cmd === "ls" || cmd === "lifestone") client.recall("lifestone");
@@ -479,6 +480,12 @@ function setTarget(guid: number | null) {
   $("targetName").textContent = o ? `${o.name}` : "";
 }
 $("btnUse").addEventListener("click", () => { if (targetGuid && client) client.use(targetGuid); });
+function blink() {
+  if (!player || !streamer) return;
+  if (player.blink()) { streamer.update(player.pos.x, player.pos.y); log("blinked one landblock ahead", "c-system"); }
+  else log("terrain ahead is not loaded yet; try again in a moment", "c-error");
+}
+$("btnBlink").addEventListener("click", () => { blink(); (document.activeElement as HTMLElement | null)?.blur(); });
 $("btnClear").addEventListener("click", () => setTarget(null));
 $("btnGive").addEventListener("click", () => { toggleInventory(true); });
 let downX = 0, downY = 0;

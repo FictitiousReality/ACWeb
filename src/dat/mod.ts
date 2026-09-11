@@ -10,3 +10,5 @@ export * from "./records/surface.ts";
 export * from "./records/cell.ts";
 export * from "./records/region.ts";
 export * from "./records/scene.ts";
+export * from "./records/motion.ts";
+export * from "./motionenums.ts";

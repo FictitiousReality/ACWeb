@@ -4,6 +4,8 @@ import { Assets } from "../src/render/assets.ts";
 import { TerrainRenderer } from "../src/render/terrain.ts";
 import { EnvCellRenderer, ObjectRenderer } from "../src/render/objects.ts";
 import { FlyCamera } from "../src/render/camera.ts";
+import { AnimatedModel } from "../src/render/animated.ts";
+import { MotionCommandNames, MotionStanceNames } from "../src/dat/motionenums.ts";
 import { BLOCK_LENGTH, landblockId } from "../src/world/terrain.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -38,6 +40,8 @@ let objects: ObjectRenderer | null = null;
 let envcells: EnvCellRenderer | null = null;
 const world = new THREE.Group();
 scene.add(world);
+const animated: AnimatedModel[] = [];
+let viewed: AnimatedModel | null = null;
 
 async function openDats(): Promise<Assets> {
   const mode = $<HTMLSelectElement>("source").value;
@@ -139,6 +143,51 @@ async function load() {
 }
 
 $("go").addEventListener("click", load);
+
+/** Model viewer: show one animated Setup at the origin and list its motions. */
+async function viewModel() {
+  try {
+    if (!assets) {
+      assets = await openDats();
+      terrain = new TerrainRenderer(assets, await assets.region());
+      objects = new ObjectRenderer(assets);
+      envcells = new EnvCellRenderer(assets, objects);
+    }
+    world.clear();
+    animated.length = 0;
+    const id = parseInt($<HTMLInputElement>("model").value.replace(/^0x/i, ""), 16);
+    const m = await AnimatedModel.create(assets, objects!, id);
+    if (!m) { log(`no setup ${id.toString(16)}`); return; }
+    viewed = m;
+    animated.push(m);
+    world.add(m.root);
+    const grid = new THREE.GridHelper(20, 20, 0x666666, 0x333333);
+    grid.rotation.x = Math.PI / 2;
+    world.add(grid);
+    const sel = $<HTMLSelectElement>("motion");
+    sel.innerHTML = "";
+    for (const mo of m.motions()) {
+      const opt = document.createElement("option");
+      opt.value = `${mo.stance}:${mo.command}`;
+      opt.textContent = `${MotionStanceNames[mo.stance] ?? mo.stance.toString(16)} / ${MotionCommandNames[mo.command] ?? mo.command.toString(16)}`;
+      sel.appendChild(opt);
+    }
+    const r = Math.max(2, m.setup.radius * 2.5, m.setup.height * 1.5);
+    camera.position.set(r, -r, m.setup.height * 0.6 + r * 0.4);
+    fly.lookAt(new THREE.Vector3(0, 0, m.setup.height * 0.5));
+    log(`setup ${id.toString(16)}: ${m.parts.length} parts, ${m.motions().length} motions, motion table ${m.motionTable ? m.motionTable.id.toString(16) : "none"}`);
+  } catch (e) {
+    log(`error: ${(e as Error).message}`);
+    console.error(e);
+  }
+}
+$("viewModel").addEventListener("click", viewModel);
+$("play").addEventListener("click", async () => {
+  if (!viewed) return;
+  const [stance, command] = $<HTMLSelectElement>("motion").value.split(":").map(Number);
+  const ok = await viewed.playMotion(command, stance);
+  log(`play ${MotionCommandNames[command]}: ${ok ? "ok" : "no animation"}; ${viewed.sequence.nodes.length} segments`);
+});
 $<HTMLSelectElement>("source").addEventListener("change", (e) => {
   $("files").classList.toggle("show", (e.target as HTMLSelectElement).value === "files");
   assets = null;
@@ -156,6 +205,7 @@ function frame(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   fly.update(dt);
+  for (const m of animated) m.update(dt);
   camera.updateMatrixWorld();
   terrain?.updateLight(camera, sunDir);
   renderer.render(scene, camera);
@@ -164,6 +214,6 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // debugging handles
-(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load };
+(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load, viewModel, animated };
 
 if (new URLSearchParams(location.search).get("auto") === "1") load();

@@ -63,8 +63,7 @@ export class ParticleSystem {
   private infos = new Map<number, Promise<ParticleEmitterInfo | null>>();
   private pendingScripts: { due: number; hook: AnimationHook; host: ParticleHost; source?: string }[] = [];
   /**
-   * Playback speed for every effect. 1 = the timings in the dat files; Rudy found the
-   * effects too rapid next to the retail client, so the client page runs them at 0.5.
+   * Playback speed for every effect. 1 = the timings in the dat files (/fxspeed changes it).
    */
   timeScale = 1;
   debug = false;
@@ -305,6 +304,9 @@ export class ParticleSystem {
     const parentPos = new THREE.Vector3();
     for (const [key, e] of this.emitters) {
       const info = e.info;
+      // expire first, then emit: continuous glows are one sprite whose lifespan (30 ms) is
+      // barely longer than its birthrate (29 ms); emitting before expiring left frames empty
+      for (const p of e.particles) if (p.active && this.now - p.birth >= p.lifespan) { p.active = false; p.obj.visible = false; }
       // emission
       if (!e.stopped) {
         const capped = info.totalParticles > 0 && e.emitted >= info.totalParticles;

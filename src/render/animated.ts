@@ -27,7 +27,7 @@ export class AnimatedModel {
 
   private constructor(private assets: Assets, readonly setup: Setup) {}
 
-  static async create(assets: Assets, objects: ObjectRenderer, setupId: number, motionTableId = 0, objDesc?: ObjDesc): Promise<AnimatedModel | null> {
+  static async create(assets: Assets, objects: ObjectRenderer, setupId: number, motionTableId = 0, objDesc?: ObjDesc, placementId = -1): Promise<AnimatedModel | null> {
     const setup = await assets.setup(setupId);
     if (!setup) return null;
     const m = new AnimatedModel(assets, setup);
@@ -59,7 +59,8 @@ export class AnimatedModel {
       m.parts.push(part);
       m.root.add(part);
     }
-    const placement = setup.placementFrames.get(Placement.Resting) ?? setup.placementFrames.get(Placement.Default) ??
+    const placement = (placementId >= 0 ? setup.placementFrames.get(placementId) : undefined) ??
+      setup.placementFrames.get(Placement.Resting) ?? setup.placementFrames.get(Placement.Default) ??
       setup.placementFrames.values().next().value ?? null;
     m.sequence.placement = placement;
     m.scriptTable = setup.defaultScriptTable;

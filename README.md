@@ -33,7 +33,9 @@ check the rules of any server before connecting to it.
   turn cycle, MoveTo targets for NPCs); the server's position updates only
   correct the estimate, and corrections decay smoothly instead of teleporting.
 - **Appearance**: clothing, armor, hair, skin and dye colors from each object's
-  ObjDesc (part replacements, texture swaps, palette overlays).
+  ObjDesc (part replacements, texture swaps, palette overlays); wielded and held
+  items (weapons, shields, wands, torches) ride on the parent model's holding
+  locations and follow its animation.
 - **Networking**: the AC UDP protocol in the browser (checksums, ISAAC-keyed
   encrypted checksums, sequencing, acks, retransmits, fragments), login,
   character list, character creation, enter world, object streaming,
@@ -267,6 +269,14 @@ ACViewer and from testing against the real files and a real server.
   motion projected onto the wall plane for sliding. About 0.2 ms per query.
   Doors need no special casing: the door entity plays its On/Off motion, so
   the rendered mesh swings out of the way.
+- Held items: a wielded object's PhysicsDesc carries a parent guid and a
+  ParentLocation (RightHand 1, LeftHand 2, Shield 3, Belt 4, Quiver 5...);
+  later wields arrive as ParentEvent (creature, item, location, placement).
+  The parent Setup's holdingLocations map that location to a part index and a
+  frame; parent the child under that part with the frame as its local
+  transform (ACE UpdateChild = part frame combined with the holding frame) and
+  the child's own placement frame (Placement id from the message) poses its
+  parts. The child often arrives before its parent, so keep it pending.
 - Region fog runs to 2400 units by day; cap it inside the loaded terrain
   distance or the edge of the world shows as a void. Two streaming rings
   (detail near, terrain-only far) give a kilometre of horizon cheaply.

@@ -158,6 +158,7 @@ async function openDats() {
   scene.add(particles.group);
   netWorld = new NetWorld(assets, streamer.objects, particles);
   netWorld.groundAt = (x, y, z) => streamer!.floorAt(x, y, z);
+  netWorld.playerHost = () => player?.model ?? null;
   // closed doors, chests, statues... block the player; creatures and ethereal objects don't
   streamer.extraColliders = () => {
     const out: THREE.Object3D[] = [];
@@ -297,6 +298,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onError: (text) => log(text, "c-error"),
       onInventory: () => renderInventory(),
       onObjectPickedUp: (g) => netWorld?.remove(g),
+      onObjectParented: (o) => netWorld?.attach(o),
       onCharacterList: showCharacters,
       onCharacterCreated: (result, _guid, name) => { loginStatus.textContent = result === "Ok" ? `created ${name}` : `create failed: ${result}`; },
       onEnterWorld: onEnterWorld,
@@ -317,7 +319,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onPlayScriptId: (o, id) => { if (o.guid === client!.playerGuid) player?.model?.playScriptId(id); else netWorld?.onPlayScriptId(o, id); },
       onAppearance: (o) => {
         if (o.guid === client!.playerGuid) {
-          if (player && assets && streamer) AnimatedModel.create(assets, streamer.objects, o.setup, o.mtable, o.raw.objDesc).then((m) => { if (m && player) { if (player.model) { player.model.dispose(); player.root.remove(player.model.root); } if (particles) m.attachParticles(particles, o.petable); player.setModel(m); } });
+          if (player && assets && streamer) AnimatedModel.create(assets, streamer.objects, o.setup, o.mtable, o.raw.objDesc).then((m) => { if (m && player) { if (player.model) { player.model.dispose(); player.root.remove(player.model.root); } if (particles) m.attachParticles(particles, o.petable); player.setModel(m); netWorld?.reattachChildren(o.guid); } });
         } else netWorld?.create(o).then((e) => { if (e) e.root.userData.guid = o.guid; });
       },
     });
@@ -359,6 +361,7 @@ function showCharacters(list: CharacterList) {
 }
 
 async function onEnterWorld(guid: number) {
+  if (netWorld) netWorld.playerGuid = guid;
   $("login").style.display = "none";
   $("hud").classList.add("show");
   player = new PlayerController(client!, streamer!);
@@ -370,7 +373,7 @@ async function onEnterWorld(guid: number) {
   }
   if (me?.setup) {
     const m = await AnimatedModel.create(assets!, streamer!.objects, me.setup, me.mtable, me.raw.objDesc);
-    if (m) { if (particles) m.attachParticles(particles, me.petable); await player.setModel(m); }
+    if (m) { if (particles) m.attachParticles(particles, me.petable); await player.setModel(m); netWorld!.reattachChildren(guid); }
   }
   log(`entered world as ${me?.name ?? guid.toString(16)}`);
   // objects that arrived before the player entry

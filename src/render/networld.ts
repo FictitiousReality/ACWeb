@@ -63,9 +63,68 @@ export class NetWorld {
 
   constructor(private assets: Assets, private objects: ObjectRenderer, private particles: ParticleSystem | null = null) {}
 
+  /** the local player's guid and model, so items they wield can be attached too */
+  playerGuid = 0;
+  playerHost: (() => AnimatedModel | null) | null = null;
+  /** wielded/held items attached to a parent's part */
+  private attached = new Map<number, { obj: WorldObject; root: THREE.Object3D; model: AnimatedModel | null; parent: number }>();
+  /** children whose parent model isn't available yet */
+  private pendingChildren = new Map<number, WorldObject>();
+
+  private hostModel(guid: number): AnimatedModel | null {
+    if (guid === this.playerGuid) return this.playerHost?.() ?? null;
+    return this.entities.get(guid)?.model ?? null;
+  }
+
+  /** Place a held/worn item on its parent's holding location (Setup.holdingLocations). */
+  async attach(obj: WorldObject): Promise<boolean> {
+    this.detach(obj.guid);
+    if (!obj.parent || !obj.setup) return false;
+    const host = this.hostModel(obj.parent);
+    if (!host) { this.pendingChildren.set(obj.guid, obj); return false; }
+    const loc = host.setup.holdingLocations.get(obj.parentLocation);
+    if (!loc) return false;
+    const serialRoot = new THREE.Group();
+    serialRoot.name = `held_${obj.guid.toString(16)}_${obj.name}`;
+    const rec = { obj, root: serialRoot, model: null as AnimatedModel | null, parent: obj.parent };
+    this.attached.set(obj.guid, rec);
+    this.pendingChildren.delete(obj.guid);
+    let model: AnimatedModel | null = null;
+    if (obj.setup >>> 24 === 0x02) {
+      model = await AnimatedModel.create(this.assets, this.objects, obj.setup, obj.mtable, obj.raw.objDesc, obj.placement);
+      if (model) { if (this.particles) model.attachParticles(this.particles, obj.petable); serialRoot.add(model.root); }
+    } else {
+      const tmpl = await this.objects.model(obj.setup);
+      if (tmpl) serialRoot.add(tmpl.clone());
+    }
+    if (this.attached.get(obj.guid) !== rec) { model?.dispose(); return false; } // detached while loading
+    rec.model = model;
+    if (obj.scale && obj.scale !== 1) serialRoot.scale.setScalar(obj.scale);
+    serialRoot.position.set(loc.frame.origin.x, loc.frame.origin.y, loc.frame.origin.z);
+    serialRoot.quaternion.set(loc.frame.rotation.x, loc.frame.rotation.y, loc.frame.rotation.z, loc.frame.rotation.w);
+    const part = loc.partId >= 0 && loc.partId < host.parts.length ? host.parts[loc.partId] : host.root;
+    part.add(serialRoot);
+    return true;
+  }
+
+  detach(guid: number) {
+    const rec = this.attached.get(guid);
+    if (!rec) return;
+    rec.root.parent?.remove(rec.root);
+    rec.model?.dispose();
+    this.attached.delete(guid);
+  }
+
+  /** Re-place every child of a parent (its model was created or replaced). */
+  reattachChildren(parentGuid: number) {
+    for (const rec of [...this.attached.values()]) if (rec.parent === parentGuid) this.attach(rec.obj);
+    for (const obj of [...this.pendingChildren.values()]) if (obj.parent === parentGuid) this.attach(obj);
+  }
+
   async create(obj: WorldObject, isPlayer = false): Promise<Entity | null> {
     this.remove(obj.guid);
-    if (!obj.setup || obj.parent || !obj.position) return null; // inventory / wielded / no model
+    if (obj.parent) { await this.attach(obj); return null; } // held or worn by someone: rides on their model
+    if (!obj.setup || !obj.position) return null; // inventory / no model
     const root = new THREE.Group();
     root.name = `obj_${obj.guid.toString(16)}_${obj.name}`;
     const e: Entity = {
@@ -94,6 +153,7 @@ export class NetWorld {
     if (obj.scale && obj.scale !== 1) root.scale.setScalar(obj.scale);
     if (!this.entities.has(obj.guid)) { this.group.remove(root); return null; } // deleted while loading
     void isPlayer;
+    this.reattachChildren(obj.guid);
     return e;
   }
 
@@ -106,7 +166,8 @@ export class NetWorld {
     const e = this.entities.get(obj.guid);
     const sameModel = e && e.obj.setup === obj.setup && e.obj.mtable === obj.mtable && e.obj.scale === obj.scale &&
       JSON.stringify(e.obj.raw.objDesc ?? null) === JSON.stringify(obj.raw.objDesc ?? null);
-    if (!e || !sameModel || obj.parent || !obj.position) return this.create(obj);
+    if (obj.parent) { const rec = this.attached.get(obj.guid); if (rec && rec.parent === obj.parent && rec.obj.setup === obj.setup) { rec.obj = obj; return null; } return this.create(obj); }
+    if (!e || !sameModel || !obj.position) return this.create(obj);
     e.obj = obj;
     this.applyPosition(e, obj.position);
     if (obj.movement) await this.applyMotion(e, obj.movement);
@@ -114,8 +175,11 @@ export class NetWorld {
   }
 
   remove(guid: number) {
+    this.detach(guid);
+    this.pendingChildren.delete(guid);
     const e = this.entities.get(guid);
     if (!e) return;
+    for (const rec of [...this.attached.values()]) if (rec.parent === guid) { this.detach(rec.obj.guid); this.pendingChildren.set(rec.obj.guid, rec.obj); }
     this.group.remove(e.root);
     e.model?.dispose();
     this.entities.delete(guid);

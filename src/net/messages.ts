@@ -52,6 +52,13 @@ export const Group = { Invalid: 0, Event: 1, Control: 2, Weenie: 3, Login: 4, Da
 
 export const GameActionType = {
   Talk: 0x15,
+  TeleToPklArena: 0x26,
+  TeleToPkArena: 0x27,
+  TeleToLifestone: 0x63,
+  TeleToHouse: 0x262,
+  TeleToMansion: 0x278,
+  TeleToMarketplace: 0x28d,
+  RecallAllegianceHometown: 0x2ab,
   PutItemInContainer: 0x19,
   GetAndWieldItem: 0x1a,
   DropItem: 0x1b,
@@ -469,6 +476,11 @@ export function buildEmote(text: string): Uint8Array {
 }
 export function buildSoulEmote(text: string): Uint8Array {
   return gameAction(GameActionType.SoulEmote).string16L(text).toBytes();
+}
+
+/** A game action with no payload (recalls etc.). */
+export function buildSimpleAction(type: number): Uint8Array {
+  return gameAction(type).toBytes();
 }
 
 export function buildPing(): Uint8Array {

@@ -10,7 +10,7 @@ import {
   buildAutonomousPosition, buildCharacterEnterWorld, buildCharacterEnterWorldRequest, buildDDDResponse, buildLoginComplete,
   buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
   buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote,
-  buildTurbineChat, parseTurbineChat, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
+  buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
 } from "./messages.ts";
@@ -138,6 +138,16 @@ export class GameClient {
   say(text: string) {
     this.send(buildTalk(text), Group.Weenie);
   }
+  /** Recall actions: lifestone, marketplace, house, mansion, allegiance hometown, PK arenas. */
+  recall(kind: "lifestone" | "marketplace" | "house" | "mansion" | "hometown" | "pkarena" | "pklarena") {
+    const type = {
+      lifestone: GameActionType.TeleToLifestone, marketplace: GameActionType.TeleToMarketplace, house: GameActionType.TeleToHouse,
+      mansion: GameActionType.TeleToMansion, hometown: GameActionType.RecallAllegianceHometown,
+      pkarena: GameActionType.TeleToPkArena, pklarena: GameActionType.TeleToPklArena,
+    }[kind];
+    this.send(buildSimpleAction(type), Group.Weenie);
+  }
+
   /** Say something on a Turbine channel (General 2, Trade 3, LFG 4, Allegiance 1). */
   channelSay(channel: number, text: string) {
     this.send(buildTurbineChat(channel, text, this.playerGuid), Group.Login);

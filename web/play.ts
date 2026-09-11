@@ -379,6 +379,13 @@ function sendChat(text: string) {
   else if (cmd === "lfg") channelSay(4, rest);
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
+  else if (cmd === "ls" || cmd === "lifestone") client.recall("lifestone");
+  else if (cmd === "mp" || cmd === "marketplace") client.recall("marketplace");
+  else if (cmd === "house") client.recall("house");
+  else if (cmd === "mansion") client.recall("mansion");
+  else if (cmd === "hom" || cmd === "hometown") client.recall("hometown");
+  else if (cmd === "pkarena") client.recall("pkarena");
+  else if (cmd === "pklarena") client.recall("pklarena");
   else if (cmd === "inv" || cmd === "i") toggleInventory();
   else log(`unknown command /${cmd}`, "c-error");
 }

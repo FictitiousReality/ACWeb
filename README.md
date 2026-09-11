@@ -261,7 +261,12 @@ ACViewer and from testing against the real files and a real server.
   DefaultScript (a PlayScript through the script table) when the weenie has
   one; the Setup script runs regardless. Sprite size is the hardware GfxObj
   quad's own extents times the particle scale (ACViewer's extra 1.8 factor is
-  a guess in its source).
+  a guess in its source). Emitter birthrate is the interval between particles
+  in seconds, not a rate. The client page runs all effects at half speed
+  (`/fxspeed` changes it): with the dat timings they looked too rapid next to
+  the retail client, and no cause was found in the emitter maths or script
+  looping (a looping script re-creating an emitter that is still running is
+  ignored rather than stacked).
 - Wall collision does not need the client's physics BSP: two horizontal rays
   (0.7 and 1.4 above the feet, so steps and ramps pass underneath) against the
   rendered meshes of nearby buildings, interior cells, scenery instances and

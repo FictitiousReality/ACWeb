@@ -61,7 +61,13 @@ export class ParticleSystem {
   private nextId = 1000000;
   private looks = new Map<number, Promise<SpriteLook | null>>();
   private infos = new Map<number, Promise<ParticleEmitterInfo | null>>();
-  private pendingScripts: { due: number; hook: AnimationHook; host: ParticleHost }[] = [];
+  private pendingScripts: { due: number; hook: AnimationHook; host: ParticleHost; source?: string }[] = [];
+  /**
+   * Playback speed for every effect. 1 = the timings in the dat files; Rudy found the
+   * effects too rapid next to the retail client, so the client page runs them at 0.5.
+   */
+  timeScale = 1;
+  debug = false;
   private now = 0;
 
   private meshLooks = new Map<number, Promise<THREE.Group | null>>();
@@ -117,14 +123,20 @@ export class ParticleSystem {
   }
 
   /** Run an animation/script hook against a host model. */
-  async handleHook(host: ParticleHost, hook: AnimationHook) {
+  async handleHook(host: ParticleHost, hook: AnimationHook, source?: string) {
     const d = hook.data;
     switch (hook.type) {
       case HookType.CreateParticle:
       case HookType.CreateBlockingParticle: {
         const id = d.emitterId as number;
         if (hook.type === HookType.CreateBlockingParticle && id && this.emitters.has(this.key(host, id))) return;
-        await this.create(host, d.emitterInfoId as number, d.partIndex as number, d.offset as Frame, id);
+        // a looping script (CallPES into itself) re-runs its CreateParticle hooks every cycle;
+        // an emitter it already made and that is still running keeps going instead of piling up
+        if (!id && source) {
+          const existing = this.emitters.get(source);
+          if (existing && !existing.stopped) return;
+        }
+        await this.create(host, d.emitterInfoId as number, d.partIndex as number, d.offset as Frame, id, source);
         break;
       }
       case HookType.DestroyParticle: this.destroy(host, d.emitterId as number); break;
@@ -141,14 +153,15 @@ export class ParticleSystem {
     return `${host.root.id}:${emitterId >>> 0}`;
   }
 
-  async create(host: ParticleHost, infoId: number, partIndex: number, offset: Frame, emitterId: number): Promise<void> {
+  async create(host: ParticleHost, infoId: number, partIndex: number, offset: Frame, emitterId: number, source?: string): Promise<void> {
     const info = await this.info(infoId);
+    if (this.debug) console.log(`[fx] create emitter ${infoId.toString(16)} source=${source} info=${!!info} dead=${this.dead.has(host)}`);
     if (!info || this.dead.has(host)) return;
     // sprites textured from the hardware GfxObj, or clones of a real GfxObj mesh
     const look = info.hwGfxObjId ? await this.look(info.hwGfxObjId) : null;
     const tmpl = !look && info.gfxObjId ? await this.meshLook(info.gfxObjId) : null;
     if (!look && !tmpl) return;
-    const key = emitterId ? this.key(host, emitterId) : `anon:${this.nextId++}`;
+    const key = emitterId ? this.key(host, emitterId) : (source ?? `anon:${this.nextId++}`);
     this.destroyKey(key);
     const parent = (partIndex >= 0 && host.parts && host.parts[partIndex]) ? host.parts[partIndex] : host.root;
     const group = new THREE.Group();
@@ -220,7 +233,8 @@ export class ParticleSystem {
   async playScriptId(host: ParticleHost, scriptId: number, delay = 0) {
     const script = await this.assets.portal.get(scriptId, parsePhysicsScript);
     if (!script || this.dead.has(host)) return;
-    for (const d of script.data) this.pendingScripts.push({ due: this.now + delay + d.startTime, hook: d.hook, host });
+    if (this.debug) console.log(`[fx] script ${scriptId.toString(16)} hooks=${script.data.map((d) => d.hook.type).join(",")} delay=${delay}`);
+    script.data.forEach((d, i) => this.pendingScripts.push({ due: this.now + delay + d.startTime, hook: d.hook, host, source: `${host.root.id}:s${scriptId}:${i}` }));
   }
 
   /** hosts whose emitters were destroyed; their scheduled hooks are dropped */
@@ -278,13 +292,14 @@ export class ParticleSystem {
   }
 
   update(dt: number) {
+    dt *= this.timeScale;
     this.now += dt;
     // timed script hooks
     if (this.pendingScripts.length) {
       const due = this.pendingScripts.filter((p) => p.due <= this.now);
       if (due.length) {
         this.pendingScripts = this.pendingScripts.filter((p) => p.due > this.now);
-        for (const p of due) this.handleHook(p.host, p.hook);
+        for (const p of due) this.handleHook(p.host, p.hook, p.source);
       }
     }
     const parentPos = new THREE.Vector3();

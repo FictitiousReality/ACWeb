@@ -155,6 +155,7 @@ async function openDats() {
   await streamer.init();
   scene.add(streamer.outdoor, streamer.indoor);
   particles = new ParticleSystem(assets, streamer.objects);
+  particles.timeScale = 0.5; // /fxspeed adjusts
   scene.add(particles.group);
   netWorld = new NetWorld(assets, streamer.objects, particles);
   netWorld.groundAt = (x, y, z) => streamer!.floorAt(x, y, z);
@@ -432,6 +433,7 @@ function sendChat(text: string) {
   else if (cmd === "lfg") channelSay(4, rest);
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
+  else if (cmd === "fxspeed") { const v = parseFloat(rest); if (particles && v > 0 && v <= 4) { particles.timeScale = v; log(`particle effects run at ${v}x`, "c-system"); } else log(`usage: /fxspeed 0.5   (current ${particles?.timeScale ?? 1}x)`, "c-error"); }
   else if (cmd === "noclip" || cmd === "ghost") { if (player) { player.noclip = !player.noclip; log(`noclip ${player.noclip ? "on: walking through walls" : "off: walls are solid"}`, "c-system"); } }
   else if (cmd === "ls" || cmd === "lifestone") client.recall("lifestone");
   else if (cmd === "mp" || cmd === "marketplace") client.recall("marketplace");

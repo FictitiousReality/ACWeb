@@ -53,6 +53,7 @@ export class PlayerController {
 
   setFromPosition(p: Position) {
     this.streamer.setPlayerCell(p.cell);
+    this.lastCell = p.cell;
     const lbx = p.cell >>> 24, lby = (p.cell >>> 16) & 0xff;
     this.pos.set(lbx * BLOCK_LENGTH + p.x, lby * BLOCK_LENGTH + p.y, p.z);
     this.yaw = 2 * Math.atan2(p.qz, p.qw);
@@ -60,16 +61,32 @@ export class PlayerController {
     this.root.rotation.set(0, 0, this.yaw);
   }
 
-  /** Current position in AC terms: landblock cell + local coords + heading quaternion. */
+  private lastCell = 0;
+
+  /**
+   * Current position in AC terms: cell id + coordinates local to that cell's
+   * landblock + heading quaternion. Indoors the cell comes from the cell BSP;
+   * dungeon geometry can extend outside its landblock's 192x192 box, so local
+   * coordinates are always taken relative to the cell's landblock, and while in
+   * a dungeon we never report a cell from another landblock (the server rejects it).
+   */
   position(): Position {
-    const lbx = Math.floor(this.pos.x / BLOCK_LENGTH), lby = Math.floor(this.pos.y / BLOCK_LENGTH);
-    const lx = this.pos.x - lbx * BLOCK_LENGTH, ly = this.pos.y - lby * BLOCK_LENGTH;
-    let cell = ((lbx << 8) | lby) << 16;
+    let cell: number;
     const inCell = this.streamer.envcells.findCell(this.pos, this.streamer.playerBlock);
     if (inCell) cell = inCell.id;
-    else cell |= (Math.floor(lx / CELL_LENGTH) * 8 + Math.floor(ly / CELL_LENGTH) + 1);
+    else if (this.streamer.inDungeon && this.lastCell) cell = this.lastCell;
+    else {
+      const lbx = Math.floor(this.pos.x / BLOCK_LENGTH), lby = Math.floor(this.pos.y / BLOCK_LENGTH);
+      const lx = this.pos.x - lbx * BLOCK_LENGTH, ly = this.pos.y - lby * BLOCK_LENGTH;
+      cell = ((((lbx << 8) | lby) << 16) | (Math.floor(lx / CELL_LENGTH) * 8 + Math.floor(ly / CELL_LENGTH) + 1)) >>> 0;
+    }
+    this.lastCell = cell;
+    const lbx = cell >>> 24, lby = (cell >>> 16) & 0xff;
     const half = this.yaw / 2;
-    return { cell: cell >>> 0, x: lx, y: ly, z: this.pos.z, qw: Math.cos(half), qx: 0, qy: 0, qz: Math.sin(half) };
+    return {
+      cell: cell >>> 0, x: this.pos.x - lbx * BLOCK_LENGTH, y: this.pos.y - lby * BLOCK_LENGTH, z: this.pos.z,
+      qw: Math.cos(half), qx: 0, qy: 0, qz: Math.sin(half),
+    };
   }
 
   update(dt: number) {

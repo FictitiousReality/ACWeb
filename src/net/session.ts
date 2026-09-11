@@ -375,7 +375,7 @@ export class NetSession {
     const seq = fixedSeq ?? ++this.sendSeq;
     const xor = flags & Flags.EncryptedChecksum && this.outIsaac ? this.outIsaac.next() : 0;
     const pkt = buildPacket({ sequence: seq, flags, id: this.clientId, time: this.ticks(), iteration: 0 }, optional, fragments, xor);
-    if (this.debug) this.log(`>> seq=${seq} flags=0x${flags.toString(16)} frags=${fragments.length} xor=${xor.toString(16)}`);
+    if (this.debug) this.log(`>> seq=${seq} flags=0x${flags.toString(16)} frags=[${fragments.map((f) => f.data.length >= 4 ? "op=" + (f.data[0] | (f.data[1] << 8) | (f.data[2] << 16) | (f.data[3] << 24)).toString(16) + (f.data.length >= 12 && (f.data[0] | (f.data[1] << 8)) === 0xf7b1 ? "/" + (f.data[8] | (f.data[9] << 8) | (f.data[10] << 16)).toString(16) : "") : "?").join(" ")}] xor=${xor.toString(16)}`);
     if (cacheIt && fixedSeq === undefined) {
       this.cache.set(seq, { bytes: pkt, flags, optional, fragments, xor });
       if (this.cache.size > 512) this.cache.delete(Math.min(...this.cache.keys()));

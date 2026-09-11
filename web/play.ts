@@ -289,7 +289,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onCharacterCreated: (result, _guid, name) => { loginStatus.textContent = result === "Ok" ? `created ${name}` : `create failed: ${result}`; },
       onEnterWorld: onEnterWorld,
       onObjectCreate: (o) => onObject(o),
-      onObjectUpdate: (o) => onObject(o),
+      onObjectUpdate: (o) => { if (client && netWorld && player && o.guid !== client.playerGuid) netWorld.updateObject(o).then((e) => { if (e) e.root.userData.guid = o.guid; }); else onObject(o); },
       onObjectPosition: (o, u) => { if (o.guid === client!.playerGuid) { player?.setFromPosition(u.position); } else netWorld?.onPosition(o, u); },
       onObjectMotion: (o, m) => {
         if (o.guid === client!.playerGuid) return;

@@ -97,6 +97,22 @@ export class NetWorld {
     return e;
   }
 
+  /**
+   * UpdateObject (0xF745) re-sends a full object description. ACE sends these often for
+   * moving players; rebuilding the model each time resets the animation and snaps the
+   * position, so refresh in place when the model is unchanged.
+   */
+  async updateObject(obj: WorldObject): Promise<Entity | null> {
+    const e = this.entities.get(obj.guid);
+    const sameModel = e && e.obj.setup === obj.setup && e.obj.mtable === obj.mtable && e.obj.scale === obj.scale &&
+      JSON.stringify(e.obj.raw.objDesc ?? null) === JSON.stringify(obj.raw.objDesc ?? null);
+    if (!e || !sameModel || obj.parent || !obj.position) return this.create(obj);
+    e.obj = obj;
+    this.applyPosition(e, obj.position);
+    if (obj.movement) await this.applyMotion(e, obj.movement);
+    return e;
+  }
+
   remove(guid: number) {
     const e = this.entities.get(guid);
     if (!e) return;
@@ -167,20 +183,22 @@ export class NetWorld {
     const sidestep = st.sidestep ? commandFromKey(st.sidestep) : 0;
     const turn = st.turn ? commandFromKey(st.turn) : 0;
     // velocity: forward and sidestep cycles scaled by the server's speeds
-    e.localVel.set(0, 0, 0);
-    e.omega = 0;
+    // (computed into locals: another applyMotion may run while we await the animations)
+    let vx = 0, vy = 0, omega = 0;
     if (m) {
       if (forward !== CMD_READY) {
         const v = await m.cycleVelocity(forward, stance);
-        e.localVel.x += v[0] * st.forwardSpeed; e.localVel.y += v[1] * st.forwardSpeed;
+        vx += v[0] * st.forwardSpeed; vy += v[1] * st.forwardSpeed;
       }
       if (sidestep) {
         const v = await m.cycleVelocity(sidestep, stance);
-        e.localVel.x += v[0] * st.sidestepSpeed; e.localVel.y += v[1] * st.sidestepSpeed;
+        vx += v[0] * st.sidestepSpeed; vy += v[1] * st.sidestepSpeed;
       }
-      if (turn) e.omega = m.cycleOmega(turn, stance) * st.turnSpeed;
+      if (turn) omega = m.cycleOmega(turn, stance) * st.turnSpeed;
       if (serial !== e.motionSerial) return;
     }
+    e.localVel.set(vx, vy, 0);
+    e.omega = omega;
     // animation: forward motion, else sidestep, else turn-in-place, else the stance's idle
     let base = CMD_READY, speed = 1;
     if (forward !== CMD_READY) { base = forward; speed = st.forwardSpeed; }

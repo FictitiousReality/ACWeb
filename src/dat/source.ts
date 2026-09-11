@@ -20,17 +20,25 @@ export class DenoFileSource implements DatSource {
     return new DenoFileSource(file, stat.size);
   }
 
-  async read(offset: number, length: number): Promise<Uint8Array> {
-    const end = Math.min(this.size, offset + length);
-    const out = new Uint8Array(Math.max(0, end - offset));
-    let done = 0;
-    await this.file.seek(offset, Deno.SeekMode.Start);
-    while (done < out.length) {
-      const n = await this.file.read(out.subarray(done));
-      if (n === null) break;
-      done += n;
-    }
-    return done === out.length ? out : out.subarray(0, done);
+  /** reads are seek+read on one handle, so concurrent callers must take turns */
+  private chain: Promise<unknown> = Promise.resolve();
+
+  read(offset: number, length: number): Promise<Uint8Array> {
+    const run = async () => {
+      const end = Math.min(this.size, offset + length);
+      const out = new Uint8Array(Math.max(0, end - offset));
+      let done = 0;
+      await this.file.seek(offset, Deno.SeekMode.Start);
+      while (done < out.length) {
+        const n = await this.file.read(out.subarray(done));
+        if (n === null) break;
+        done += n;
+      }
+      return done === out.length ? out : out.subarray(0, done);
+    };
+    const p = this.chain.then(run, run);
+    this.chain = p.catch(() => {});
+    return p;
   }
 
   close(): void {

@@ -181,6 +181,18 @@ ACViewer and from testing against the real files and a real server.
   moves the other way); turn rate comes from the cycle's Omega field (-1.5
   rad/s for TurnRight); server speeds multiply both the velocity and the
   animation framerate.
+- A creature usually comes into view already moving, so its CreateObject and
+  its first motion message arrive together. Rebuilding the animation sequence
+  across awaits let the two interleave: the sequence ended up holding the idle
+  cycle while the model believed it was running, every later run message was a
+  no-op, and the velocity was added twice. Load every animation first and then
+  rebuild the sequence synchronously; compute velocities into locals and assign
+  after the newest-request check. Symptom: players slide with no run animation.
+- Dev loop for movement bugs: play.html?debug=1 posts raw movement messages to
+  the dev server (captures.log); `deno run --allow-read src/tools/decodecap.ts`
+  decodes them and `acweb.replay("<name>")` in the viewer replays one object
+  through the real NetWorld. UpdateObject (0xF745) arrives often for items;
+  refresh entities in place instead of rebuilding their models.
 - A reversed animation segment (negative framerate, used by the spell
   power-up "bounce") still hands over to the *next* node when it reaches its
   low frame; the direction of wall-clock time picks the next node, not the

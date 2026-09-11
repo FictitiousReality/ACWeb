@@ -75,6 +75,10 @@ async function serveDat(req: Request, name: string): Promise<Response> {
 Deno.serve({ port, hostname: "127.0.0.1" }, async (req) => {
   const url = new URL(req.url);
   if (url.pathname.startsWith("/dat/")) return serveDat(req, url.pathname.slice(5));
+  if (url.pathname === "/captures.log") {
+    try { return new Response(await Deno.readTextFile("captures.log"), { headers: { "content-type": "text/plain", "access-control-allow-origin": "*" } }); }
+    catch { return new Response("", { status: 404 }); }
+  }
   if (url.pathname === "/capture" && req.method === "POST") {
     // debug aid: the client posts raw game messages (hex) here; decode with src/tools/decodecap.ts
     const text = await req.text();

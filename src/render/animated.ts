@@ -152,26 +152,27 @@ export class AnimatedModel {
       return true;
     }
     const base = isAction ? this.currentMotion : command;
-    const { link, cycle } = motionSegments(this.motionTable, stance, isAction ? command : command, this.currentMotion);
+    const { link, cycle } = motionSegments(this.motionTable, stance, command, this.currentMotion);
     const cyc = isAction ? (this.motionTable.cycles.get(motionKey(stance, base))?.anims ?? []) : cycle;
     if (link.length === 0 && cyc.length === 0) return false;
+    // Load every animation first, then rebuild the sequence synchronously: concurrent
+    // playMotion calls (create + first server motion) must not interleave their appends.
+    const serial = ++this.playSerial;
+    const linkAnims = await Promise.all(link.map((d) => this.animation(d.animId)));
+    const cycAnims = await Promise.all(cyc.map((d) => this.animation(d.animId)));
+    if (serial !== this.playSerial) return false; // superseded by a newer request
     this.sequence.clear();
-    for (const d of link) {
-      const anim = await this.animation(d.animId);
-      if (anim) this.sequence.append(anim, d, speed);
-    }
+    link.forEach((d, i) => { const a = linkAnims[i]; if (a) this.sequence.append(a, d, speed); });
     this.sequence.markCyclicStart();
     const cycleSpeed = isAction ? this.motionSpeed : speed;
-    for (const d of cyc) {
-      const anim = await this.animation(d.animId);
-      if (anim) this.sequence.append(anim, d, cycleSpeed);
-    }
+    cyc.forEach((d, i) => { const a = cycAnims[i]; if (a) this.sequence.append(a, d, cycleSpeed); });
     if (cyc.length === 0) this.sequence.firstCyclic = this.sequence.nodes.length - 1; // hold last transition frame
     this.stance = stance;
     this.currentMotion = base;
     if (!isAction) this.motionSpeed = speed;
     return true;
   }
+  private playSerial = 0;
 
   /** Route animation hooks (CreateParticle etc.) to a particle system. */
   attachParticles(ps: ParticleSystem, scriptTable = 0) {

@@ -7,6 +7,10 @@ import { FlyCamera } from "../src/render/camera.ts";
 import { SkyRenderer } from "../src/render/sky.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
 import { ParticleSystem } from "../src/render/particles.ts";
+import { NetWorld } from "../src/render/networld.ts";
+import { BinReader } from "../src/dat/reader.ts";
+import { Opcode, parseCreateObject, parseMotionMessage, parseUpdatePosition } from "../src/net/messages.ts";
+import type { WorldObject } from "../src/net/client.ts";
 import { MotionCommandNames, MotionStanceNames } from "../src/dat/motionenums.ts";
 import { BLOCK_LENGTH, landblockId } from "../src/world/terrain.ts";
 
@@ -224,8 +228,63 @@ $<HTMLInputElement>("wire").addEventListener("change", (e) => {
   });
 });
 
+/** Dev aid: replay captures.log (from play.html?debug=1) for one object through NetWorld, camera following it. */
+let replayWorld: NetWorld | null = null;
+async function replay(name: string, speed = 1) {
+  if (!assets) { assets = await openDats(); terrain = new TerrainRenderer(assets, await assets.region()); objects = new ObjectRenderer(assets); envcells = new EnvCellRenderer(assets, objects); }
+  if (!particles) { particles = new ParticleSystem(assets, objects!); scene.add(particles.group); }
+  if (replayWorld) scene.remove(replayWorld.group);
+  replayWorld = new NetWorld(assets, objects!, particles);
+  scene.add(replayWorld.group);
+  const lines = (await (await fetch("/captures.log")).text()).split("\n").filter((l) => l.trim());
+  const objs = new Map<number, WorldObject>();
+  let t0 = 0, start = performance.now();
+  for (const line of lines) {
+    const [ts, opHex, , hex] = line.split(" ");
+    const data = Uint8Array.from(hex.match(/../g)!.map((h) => parseInt(h, 16)));
+    const op = parseInt(opHex, 16);
+    if (!t0) t0 = +ts;
+    const due = start + (+ts - t0) / speed;
+    const wait = due - performance.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    const r = new BinReader(data); r.u32();
+    if (op === Opcode.ObjectCreate || op === Opcode.UpdateObject) {
+      const co = parseCreateObject(r);
+      if (co.weenie.name !== name) continue;
+      const obj = {
+        guid: co.guid, name: co.weenie.name, wcid: co.weenie.wcid, setup: co.physics.setup ?? 0, mtable: co.physics.mtable ?? 0, petable: co.physics.petable ?? 0,
+        physicsState: co.physics.state, defaultScript: co.physics.defaultScript ?? 0, defaultScriptIntensity: co.physics.defaultScriptIntensity ?? 1,
+        scale: co.physics.scale ?? 1, position: co.physics.position ?? null, parent: co.physics.parent?.id ?? co.weenie.wielder ?? co.weenie.container ?? null,
+        container: null, wielder: null, wieldedLocation: 0, stackSize: 1, value: 0, icon: 0, objectFlags: 0, itemType: 0, movement: co.physics.movement, raw: co,
+      } as unknown as WorldObject;
+      objs.set(co.guid, obj);
+      const e = await (op === Opcode.ObjectCreate ? replayWorld.create(obj) : replayWorld.updateObject(obj));
+      log(`replay: ${op === Opcode.ObjectCreate ? "create" : "update"} ${name} model=${!!e?.model}`);
+    } else if (op === Opcode.Motion) {
+      const m = parseMotionMessage(r);
+      const obj = objs.get(m.guid); if (!obj) continue;
+      obj.movement = m.movement;
+      replayWorld.onMotion(obj, m.movement);
+      const st = m.movement.state;
+      log(`replay: motion fwd=${st ? MotionCommandNames[(0x44000000 | st.forward) >>> 0] ?? st.forward : "?"} x${st?.forwardSpeed.toFixed(2)} model motion=${replayWorld.entities.get(m.guid)?.model?.currentMotion.toString(16)}`);
+    } else if (op === Opcode.UpdatePosition) {
+      const u = parseUpdatePosition(r);
+      const obj = objs.get(u.guid); if (!obj) continue;
+      obj.position = u.position;
+      replayWorld.onPosition(obj, u);
+    }
+  }
+  log("replay: done");
+}
+
 let last = performance.now();
 function frame(now: number) {
+  if (replayWorld) {
+    const dt0 = Math.min(0.1, (now - last) / 1000);
+    replayWorld.update(dt0);
+    const e = replayWorld.entities.values().next().value;
+    if (e) { camera.position.copy(e.root.position).add(new THREE.Vector3(4, -4, 2.5)); fly.lookAt(e.root.position.clone().add(new THREE.Vector3(0, 0, 1))); }
+  }
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   fly.update(dt);
@@ -263,6 +322,6 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // debugging handles
-(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load, viewModel, animated, get particles() { return particles; } };
+(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load, viewModel, animated, replay, frameOnce: () => frame(performance.now()), get particles() { return particles; }, get replayWorld() { return replayWorld; } };
 
 if (new URLSearchParams(location.search).get("auto") === "1") load();

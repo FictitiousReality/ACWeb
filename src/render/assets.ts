@@ -106,15 +106,15 @@ export class Assets {
     return p;
   }
 
-  async threeTexture(surfaceTextureId: number, clipMap = false, paletteId = 0, override?: PaletteOverride): Promise<THREE.Texture | null> {
-    const key = `${surfaceTextureId}:${clipMap ? 1 : 0}:${paletteId}:${override?.key ?? ""}`;
+  async threeTexture(surfaceTextureId: number, clipMap = false, paletteId = 0, override?: PaletteOverride, clamp = false): Promise<THREE.Texture | null> {
+    const key = `${surfaceTextureId}:${clipMap ? 1 : 0}:${paletteId}:${override?.key ?? ""}:${clamp ? "c" : ""}`;
     let p = this.textures.get(key);
     if (!p) {
       p = this.image(surfaceTextureId, clipMap, paletteId, override).then((img) => {
         if (!img) return null;
         const tex = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat, THREE.UnsignedByteType);
         tex.colorSpace = THREE.SRGBColorSpace;
-        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.wrapS = tex.wrapT = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
         tex.magFilter = THREE.LinearFilter;
         tex.minFilter = THREE.LinearMipmapLinearFilter;
         tex.generateMipmaps = isPow2(img.width) && isPow2(img.height);

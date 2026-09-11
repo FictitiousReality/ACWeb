@@ -79,7 +79,8 @@ export class SkyRenderer {
         const mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, depthWrite: false, depthTest: false, fog: false });
         if (s && s.type & (SurfaceFlags.Base1Image | SurfaceFlags.Base1ClipMap)) {
           const clip = (s.type & SurfaceFlags.Base1ClipMap) !== 0;
-          const tex = await this.assets.threeTexture(s.origTextureId, clip, s.origPaletteId);
+          // clamp: sky polygons end exactly at texture edges, repeat wrapping draws seams
+          const tex = await this.assets.threeTexture(s.origTextureId, clip, s.origPaletteId, undefined, true);
           if (tex) mat.map = tex;
           if (clip) mat.alphaTest = 0.5;
           if (s.type & SurfaceFlags.Alpha || s.type & SurfaceFlags.InvAlpha) mat.transparent = true;

@@ -11,6 +11,8 @@ const EPSILON = 0.0002;
 export interface AnimNode {
   anim: Animation;
   framerate: number;
+  /** framerate from the motion table before any speed scaling */
+  baseRate: number;
   lowFrame: number;
   highFrame: number;
 }
@@ -26,7 +28,7 @@ export class AnimSequence {
 
   private static node(anim: Animation, d: AnimData): AnimNode {
     const high = d.highFrame === -1 ? anim.numFrames - 1 : d.highFrame;
-    return { anim, framerate: d.framerate, lowFrame: d.lowFrame, highFrame: high };
+    return { anim, framerate: d.framerate, baseRate: d.framerate, lowFrame: d.lowFrame, highFrame: high };
   }
 
   private startFrame(n: AnimNode): number {
@@ -43,9 +45,24 @@ export class AnimSequence {
     this.frameNum = 0;
   }
 
+  /** Scale the looping segments' playback rate (ACE multiply_cyclic_animation_framerate). */
+  setCycleSpeed(speed: number): void {
+    for (let i = this.firstCyclic; i < this.nodes.length; i++) {
+      const n = this.nodes[i];
+      const was = n.framerate;
+      n.framerate = n.baseRate * speed;
+      // reversing direction: keep the frame position valid for the new direction
+      if (i === this.current && Math.sign(was) !== Math.sign(n.framerate) && n.framerate !== 0) {
+        this.frameNum = Math.max(n.lowFrame, Math.min(n.highFrame + 1 - EPSILON, this.frameNum));
+      }
+    }
+  }
+
   /** Append a segment; the last appended segment becomes the cyclic one. */
-  append(anim: Animation, d: AnimData): void {
-    this.nodes.push(AnimSequence.node(anim, d));
+  append(anim: Animation, d: AnimData, speed = 1): void {
+    const n = AnimSequence.node(anim, d);
+    n.framerate = n.baseRate * speed;
+    this.nodes.push(n);
     this.firstCyclic = this.nodes.length - 1;
     if (this.current < 0) {
       this.current = 0;
@@ -98,7 +115,9 @@ export class AnimSequence {
       done = true;
     }
     if (done) {
-      if (frametime >= 0) {
+      // the direction of time, not of the segment, picks the next node (ACE advance_to_next_animation):
+      // a reversed segment (negative framerate) still hands over to the following node
+      if (dt >= 0) {
         this.current = this.current + 1 < this.nodes.length ? this.current + 1 : Math.min(this.firstCyclic, this.nodes.length - 1);
       } else {
         this.current = this.current > 0 ? this.current - 1 : this.nodes.length - 1;

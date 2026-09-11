@@ -1,4 +1,5 @@
 import type { ParticleSystem } from "./particles.ts";
+import { motionKey } from "../dat/motionenums.ts";
 /**
  * An animated Setup instance: one Object3D per part, driven by an AnimSequence
  * and a MotionTable. Part transforms are object-space (AC PartArray semantics).
@@ -98,17 +99,29 @@ export class AnimatedModel {
     return [...out.values()];
   }
 
-  /** Displacement per second produced by a motion's cycle animation (from its position frames). */
-  async cycleVelocity(command: number, stance = this.stance): Promise<[number, number, number]> {
+  private velocityCache = new Map<number, Promise<[number, number, number]>>();
+
+  /** Displacement per second (object space, +Y forward) produced by a motion's cycle at speed 1. */
+  cycleVelocity(command: number, stance = this.stance): Promise<[number, number, number]> {
+    const key = ((stance & 0xffff) << 16 | (command & 0xffff)) >>> 0;
+    let p = this.velocityCache.get(key);
+    if (!p) { p = this.computeCycleVelocity(command, stance); this.velocityCache.set(key, p); }
+    return p;
+  }
+
+  private async computeCycleVelocity(command: number, stance: number): Promise<[number, number, number]> {
     if (!this.motionTable) return [0, 0, 0];
-    const { cycle } = motionSegments(this.motionTable, stance, command, this.currentMotion);
+    const md = this.motionTable.cycles.get(motionKey(stance, command));
+    if (!md) return [0, 0, 0];
+    if (md.velocity) return [md.velocity.x, md.velocity.y, md.velocity.z];
     let x = 0, y = 0, z = 0, seconds = 0;
-    for (const d of cycle) {
+    for (const d of md.anims) {
       const anim = await this.animation(d.animId);
       if (!anim || anim.posFrames.length === 0) continue;
       const lo = d.lowFrame, hi = d.highFrame === -1 ? anim.numFrames - 1 : d.highFrame;
+      const sign = d.framerate < 0 ? -1 : 1; // a reversed cycle moves the other way
       for (let i = lo; i <= hi && i < anim.posFrames.length; i++) {
-        x += anim.posFrames[i].origin.x; y += anim.posFrames[i].origin.y; z += anim.posFrames[i].origin.z;
+        x += sign * anim.posFrames[i].origin.x; y += sign * anim.posFrames[i].origin.y; z += sign * anim.posFrames[i].origin.z;
       }
       seconds += (hi - lo + 1) / Math.abs(d.framerate || 30);
     }
@@ -116,25 +129,47 @@ export class AnimatedModel {
     return [x / seconds, y / seconds, z / seconds];
   }
 
-  /** Play a motion: transition animations from the current motion, then loop its cycle. */
-  async playMotion(command: number, stance = this.stance): Promise<boolean> {
+  /** Rotation rate about +Z (radians per second) of a motion's cycle at speed 1 (e.g. TurnRight). */
+  cycleOmega(command: number, stance = this.stance): number {
+    const md = this.motionTable?.cycles.get(motionKey(stance, command));
+    return md?.omega ? md.omega.z : 0;
+  }
+
+  /** Base framerates multiplied by this factor (server ForwardSpeed etc.) */
+  motionSpeed = 1;
+
+  /**
+   * Play a motion: transition animations from the current motion, then loop its cycle.
+   * `speed` scales playback (server ForwardSpeed; negative plays the cycle backwards).
+   * Action commands (spell power-ups, emotes) play their transition once and return to the
+   * current cycle, as in ACE MotionTable.GetObjectSequence.
+   */
+  async playMotion(command: number, stance = this.stance, speed = 1): Promise<boolean> {
     if (!this.motionTable) return false;
-    if (command === this.currentMotion && stance === this.stance && this.sequence.nodes.length > 0) return true;
-    const { link, cycle } = motionSegments(this.motionTable, stance, command, this.currentMotion);
-    if (link.length === 0 && cycle.length === 0) return false;
+    const isAction = (command & 0x10000000) !== 0 && (command & 0x40000000) === 0;
+    if (!isAction && command === this.currentMotion && stance === this.stance && this.sequence.nodes.length > 0) {
+      if (speed !== this.motionSpeed) { this.motionSpeed = speed; this.sequence.setCycleSpeed(speed); }
+      return true;
+    }
+    const base = isAction ? this.currentMotion : command;
+    const { link, cycle } = motionSegments(this.motionTable, stance, isAction ? command : command, this.currentMotion);
+    const cyc = isAction ? (this.motionTable.cycles.get(motionKey(stance, base))?.anims ?? []) : cycle;
+    if (link.length === 0 && cyc.length === 0) return false;
     this.sequence.clear();
     for (const d of link) {
       const anim = await this.animation(d.animId);
-      if (anim) this.sequence.append(anim, d);
+      if (anim) this.sequence.append(anim, d, speed);
     }
     this.sequence.markCyclicStart();
-    for (const d of cycle) {
+    const cycleSpeed = isAction ? this.motionSpeed : speed;
+    for (const d of cyc) {
       const anim = await this.animation(d.animId);
-      if (anim) this.sequence.append(anim, d);
+      if (anim) this.sequence.append(anim, d, cycleSpeed);
     }
-    if (cycle.length === 0) this.sequence.firstCyclic = this.sequence.nodes.length - 1; // hold last transition frame
+    if (cyc.length === 0) this.sequence.firstCyclic = this.sequence.nodes.length - 1; // hold last transition frame
     this.stance = stance;
-    this.currentMotion = command;
+    this.currentMotion = base;
+    if (!isAction) this.motionSpeed = speed;
     return true;
   }
 

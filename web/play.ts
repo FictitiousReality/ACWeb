@@ -155,6 +155,7 @@ async function openDats() {
   particles = new ParticleSystem(assets);
   scene.add(particles.group);
   netWorld = new NetWorld(assets, streamer.objects, particles);
+  netWorld.groundAt = (x, y, z) => streamer!.floorAt(x, y, z);
   scene.add(netWorld.group);
   sky = new SkyRenderer(assets, region);
   await sky.build();

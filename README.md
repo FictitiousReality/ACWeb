@@ -25,8 +25,13 @@ check the rules of any server before connecting to it.
   placed with the client's PRNG rules.
 - **Interiors**: building rooms and dungeons with furniture, camera-in-cell
   detection via the cell BSP, portal-style visibility.
-- **Animation**: motion-table driven playback (transitions + cycles), run/walk/
-  turn/sidestep on the player, server-driven motions on other creatures.
+- **Animation**: motion-table driven playback (transitions + cycles, action
+  commands that play once and return to the cycle, server speed scaling), run/
+  walk/turn/sidestep on the player, server-driven motions on other creatures.
+- **Other players and NPCs**: dead-reckoned from their interpreted motion
+  state (forward/sidestep velocity from the cycle animations, yaw rate from the
+  turn cycle, MoveTo targets for NPCs); the server's position updates only
+  correct the estimate, and corrections decay smoothly instead of teleporting.
 - **Appearance**: clothing, armor, hair, skin and dye colors from each object's
   ObjDesc (part replacements, texture swaps, palette overlays).
 - **Networking**: the AC UDP protocol in the browser (checksums, ISAAC-keyed
@@ -162,6 +167,23 @@ ACViewer and from testing against the real files and a real server.
   you are in when both are indoor cells, so report the cell from the cell BSP,
   compute local coordinates relative to that cell's landblock (they can be
   negative), and never switch landblocks inside a dungeon.
+- Other players' positions arrive about once a second (ACE throttles
+  MoveToState position broadcasts to 1 s; AutonomousPosition always
+  broadcasts). The retail client simulates nearby players from their motion
+  state between updates; do the same or they teleport. The broadcast state is
+  already interpreted: run is RunForward with ForwardSpeed = run rate, walking
+  backwards is WalkForward with speed -0.65, sidestep is SideStepRight with
+  speed = rate * 3.12 / 1.25 * 0.5 (sign for left, clamped to 3), turn is
+  TurnRight with speed 1 (1.5 running, sign for left). Displacement per second
+  comes from summing the cycle animation's position frames (a reversed cycle
+  moves the other way); turn rate comes from the cycle's Omega field (-1.5
+  rad/s for TurnRight); server speeds multiply both the velocity and the
+  animation framerate.
+- A reversed animation segment (negative framerate, used by the spell
+  power-up "bounce") still hands over to the *next* node when it reaches its
+  low frame; the direction of wall-clock time picks the next node, not the
+  segment's direction. Getting this wrong ping-pongs between the two segments
+  forever.
 - Using an NPC out of range makes the server send you a MoveToObject motion
   and wait for your position reports to arrive within the use radius; if your
   reports are being rejected, uses silently never complete and gives answer

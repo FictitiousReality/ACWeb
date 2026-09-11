@@ -140,7 +140,7 @@ export class NetWorld {
     this.group.add(root);
     this.applyPosition(e, obj.position, true);
     if (obj.setup >>> 24 === 0x02) {
-      const m = await AnimatedModel.create(this.assets, this.objects, obj.setup, obj.mtable, obj.raw.objDesc);
+      const m = await AnimatedModel.create(this.assets, this.objects, obj.setup, obj.mtable, obj.raw.objDesc, obj.placement || -1);
       if (m) {
         e.model = m;
         if (this.particles) {

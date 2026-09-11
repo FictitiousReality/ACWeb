@@ -59,8 +59,11 @@ export class AnimatedModel {
       m.parts.push(part);
       m.root.add(part);
     }
+    // ACE PartArray.SetPlacementFrame: the requested placement, else Default (0). Resting (101) is
+    // the lying-on-the-ground pose the server asks for explicitly on dropped items; using it as
+    // a fallback held weapons and bows in their dropped orientation.
     const placement = (placementId >= 0 ? setup.placementFrames.get(placementId) : undefined) ??
-      setup.placementFrames.get(Placement.Resting) ?? setup.placementFrames.get(Placement.Default) ??
+      setup.placementFrames.get(Placement.Default) ?? setup.placementFrames.get(Placement.Resting) ??
       setup.placementFrames.values().next().value ?? null;
     m.sequence.placement = placement;
     m.scriptTable = setup.defaultScriptTable;

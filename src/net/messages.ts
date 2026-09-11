@@ -6,6 +6,10 @@ import { BinReader } from "../dat/reader.ts";
 import { alignReader, BinWriter, readPackedDword, readPackedDwordOfKnownType, readString16L } from "./binary.ts";
 
 export const Opcode = {
+  InventoryRemoveObject: 0x0024,
+  SetStackSize: 0x0197,
+  EmoteText: 0x01e0,
+  SoulEmote: 0x01e2,
   HearSpeech: 0x02bb,
   HearRangedSpeech: 0x02bc,
   ObjDescEvent: 0xf625,
@@ -47,6 +51,16 @@ export const Group = { Invalid: 0, Event: 1, Control: 2, Weenie: 3, Login: 4, Da
 
 export const GameActionType = {
   Talk: 0x15,
+  PutItemInContainer: 0x19,
+  GetAndWieldItem: 0x1a,
+  DropItem: 0x1b,
+  UseWithTarget: 0x35,
+  Use: 0x36,
+  Tell: 0x5d,
+  IdentifyObject: 0xc8,
+  GiveObjectRequest: 0xcd,
+  Emote: 0x1df,
+  SoulEmote: 0x1e1,
   LoginComplete: 0xa1,
   PingRequest: 0x1e9,
   Jump: 0xf61b,
@@ -255,6 +269,15 @@ export interface WeenieDesc {
   flags2: number;
   container?: number;
   wielder?: number;
+  value?: number;
+  stackSize?: number;
+  maxStackSize?: number;
+  validLocations?: number;
+  wieldedLocation?: number;
+  burden?: number;
+  itemsCapacity?: number;
+  containersCapacity?: number;
+  useRadius?: number;
 }
 export function parseWeenieDesc(r: BinReader): WeenieDesc {
   const flags = r.u32();
@@ -267,29 +290,29 @@ export function parseWeenieDesc(r: BinReader): WeenieDesc {
   const d: WeenieDesc = { flags, name, wcid, icon, itemType, objectFlags, flags2: 0 };
   if (objectFlags & 0x4000000) d.flags2 = r.u32();
   if (flags & 0x1) readString16L(r);
-  if (flags & 0x2) r.u8();
-  if (flags & 0x4) r.u8();
+  if (flags & 0x2) d.itemsCapacity = r.u8();
+  if (flags & 0x4) d.containersCapacity = r.u8();
   if (flags & 0x100) r.u16();
-  if (flags & 0x8) r.u32();
+  if (flags & 0x8) d.value = r.u32();
   if (flags & 0x10) r.u32();
-  if (flags & 0x20) r.f32();
+  if (flags & 0x20) d.useRadius = r.f32();
   if (flags & 0x80000) r.u32();
   if (flags & 0x80) r.u32();
   if (flags & 0x200) r.u8();
   if (flags & 0x400) r.u16();
   if (flags & 0x800) r.u16();
-  if (flags & 0x1000) r.u16();
-  if (flags & 0x2000) r.u16();
+  if (flags & 0x1000) d.stackSize = r.u16();
+  if (flags & 0x2000) d.maxStackSize = r.u16();
   if (flags & 0x4000) d.container = r.u32();
   if (flags & 0x8000) d.wielder = r.u32();
-  if (flags & 0x10000) r.u32();
-  if (flags & 0x20000) r.u32();
+  if (flags & 0x10000) d.validLocations = r.u32();
+  if (flags & 0x20000) d.wieldedLocation = r.u32();
   if (flags & 0x40000) r.u32();
   if (flags & 0x100000) r.u8();
   if (flags & 0x800000) r.u8();
   if (flags & 0x8000000) r.u16(); // PScript (ushort)
   if (flags & 0x1000000) r.f32(); // Workmanship
-  if (flags & 0x200000) r.u16();
+  if (flags & 0x200000) d.burden = r.u16();
   if (flags & 0x400000) r.u16();
   if (flags & 0x2000000) r.u32();
   if (flags & 0x4000000) {
@@ -414,6 +437,37 @@ export function buildTalk(text: string): Uint8Array {
   const w = gameAction(GameActionType.Talk);
   w.string16L(text);
   return w.toBytes();
+}
+
+export function buildUse(guid: number): Uint8Array {
+  return gameAction(GameActionType.Use).u32(guid).toBytes();
+}
+export function buildUseWithTarget(source: number, target: number): Uint8Array {
+  return gameAction(GameActionType.UseWithTarget).u32(source).u32(target).toBytes();
+}
+export function buildGive(target: number, item: number, amount: number): Uint8Array {
+  return gameAction(GameActionType.GiveObjectRequest).u32(target).u32(item).i32(amount).toBytes();
+}
+export function buildDrop(item: number): Uint8Array {
+  return gameAction(GameActionType.DropItem).u32(item).toBytes();
+}
+export function buildPutInContainer(item: number, container: number, placement = 0): Uint8Array {
+  return gameAction(GameActionType.PutItemInContainer).u32(item).u32(container).i32(placement).toBytes();
+}
+export function buildGetAndWield(item: number, location: number): Uint8Array {
+  return gameAction(GameActionType.GetAndWieldItem).u32(item).i32(location).toBytes();
+}
+export function buildIdentify(guid: number): Uint8Array {
+  return gameAction(GameActionType.IdentifyObject).u32(guid).toBytes();
+}
+export function buildTell(message: string, target: string): Uint8Array {
+  return gameAction(GameActionType.Tell).string16L(message).string16L(target).toBytes();
+}
+export function buildEmote(text: string): Uint8Array {
+  return gameAction(GameActionType.Emote).string16L(text).toBytes();
+}
+export function buildSoulEmote(text: string): Uint8Array {
+  return gameAction(GameActionType.SoulEmote).string16L(text).toBytes();
 }
 
 export function buildPing(): Uint8Array {

@@ -4,10 +4,12 @@
  */
 import { BinReader } from "../dat/reader.ts";
 import { readString16L } from "./binary.ts";
+import { humanize, WeenieErrorNames, WeenieErrorWithStringNames } from "./weenieerrors.ts";
 import { NetSession, RelayTransport, type GameMessage, type SessionState } from "./session.ts";
 import {
   buildAutonomousPosition, buildCharacterEnterWorld, buildCharacterEnterWorldRequest, buildDDDResponse, buildLoginComplete,
-  buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
+  buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
+  buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
 } from "./messages.ts";
@@ -21,6 +23,12 @@ export interface WorldObject {
   scale: number;
   position: Position | null;
   parent: number | null;
+  container: number | null;
+  wielder: number | null;
+  wieldedLocation: number;
+  stackSize: number;
+  value: number;
+  icon: number;
   objectFlags: number;
   itemType: number;
   movement?: MovementData;
@@ -40,6 +48,11 @@ export interface ClientEvents {
   onObjectMotion?(obj: WorldObject, movement: MovementData): void;
   onObjectDelete?(guid: number): void;
   onPlayerTeleport?(): void;
+  /** inventory/equipment of the player changed (item added, removed, wielded, stack changed) */
+  onInventory?(): void;
+  /** an item left the 3D world (picked up by someone) */
+  onObjectPickedUp?(guid: number): void;
+  onError?(text: string): void;
 }
 
 export interface DatIterations { portal: number; cell: number; language: number }
@@ -104,6 +117,40 @@ export class GameClient {
 
   say(text: string) {
     this.send(buildTalk(text), Group.Weenie);
+  }
+  tell(target: string, text: string) {
+    this.send(buildTell(text, target), Group.Weenie);
+  }
+  emote(text: string) {
+    this.send(buildEmote(text), Group.Weenie);
+  }
+  soulEmote(text: string) {
+    this.send(buildSoulEmote(text), Group.Weenie);
+  }
+  use(guid: number) {
+    this.send(buildUse(guid), Group.Weenie);
+  }
+  useWith(source: number, target: number) {
+    this.send(buildUseWithTarget(source, target), Group.Weenie);
+  }
+  give(target: number, item: number, amount = 1) {
+    this.send(buildGive(target, item, amount), Group.Weenie);
+  }
+  drop(item: number) {
+    this.send(buildDrop(item), Group.Weenie);
+  }
+  putInContainer(item: number, container: number, placement = 0) {
+    this.send(buildPutInContainer(item, container, placement), Group.Weenie);
+  }
+  identify(guid: number) {
+    this.send(buildIdentify(guid), Group.Weenie);
+  }
+
+  /** Items in the player's packs (including sub-packs) and equipped items. */
+  inventory(): WorldObject[] {
+    const packs = new Set<number>([this.playerGuid]);
+    for (const o of this.objects.values()) if (o.container === this.playerGuid && o.itemType & 0x200) packs.add(o.guid);
+    return [...this.objects.values()].filter((o) => (o.container !== null && packs.has(o.container)) || o.wielder === this.playerGuid);
   }
 
   sendMoveToState(motion: RawMotion, pos: Position, contact = true) {
@@ -178,6 +225,8 @@ export class GameClient {
         const obj: WorldObject = {
           guid: co.guid, name: co.weenie.name, wcid: co.weenie.wcid, setup: co.physics.setup ?? 0, mtable: co.physics.mtable ?? 0,
           scale: co.physics.scale ?? 1, position: co.physics.position ?? null, parent: co.physics.parent?.id ?? co.weenie.wielder ?? co.weenie.container ?? null,
+          container: co.weenie.container ?? null, wielder: co.weenie.wielder ?? null, wieldedLocation: co.weenie.wieldedLocation ?? 0,
+          stackSize: co.weenie.stackSize ?? 1, value: co.weenie.value ?? 0, icon: co.weenie.icon,
           objectFlags: co.weenie.objectFlags, itemType: co.weenie.itemType, movement: co.physics.movement, raw: co,
         };
         const existed = this.objects.has(co.guid);
@@ -193,12 +242,45 @@ export class GameClient {
         }
         if (existed) this.events.onObjectUpdate?.(obj);
         else this.events.onObjectCreate?.(obj);
+        if (obj.container === this.playerGuid || obj.wielder === this.playerGuid || this.isInMyPack(obj)) this.events.onInventory?.();
         break;
       }
       case Opcode.ObjectDelete: {
         const guid = r.u32();
+        const wasMine = this.isMine(this.objects.get(guid));
         this.objects.delete(guid);
         this.events.onObjectDelete?.(guid);
+        if (wasMine) this.events.onInventory?.();
+        break;
+      }
+      case Opcode.InventoryRemoveObject: {
+        const guid = r.u32();
+        const o = this.objects.get(guid);
+        if (o) { o.container = null; o.wielder = null; }
+        this.events.onInventory?.();
+        break;
+      }
+      case Opcode.SetStackSize: {
+        r.u8();
+        const guid = r.u32();
+        const stack = r.u32();
+        const value = r.u32();
+        const o = this.objects.get(guid);
+        if (o) { o.stackSize = stack; o.value = value; }
+        this.events.onInventory?.();
+        break;
+      }
+      case Opcode.PickupEvent: {
+        const guid = r.u32();
+        this.events.onObjectPickedUp?.(guid);
+        break;
+      }
+      case Opcode.EmoteText:
+      case Opcode.SoulEmote: {
+        r.u32();
+        const sender = readString16L(r);
+        const text = readString16L(r);
+        this.events.onChat?.(m.opcode === Opcode.SoulEmote ? `${sender} ${text}` : `${sender} ${text}`, "emote", undefined);
         break;
       }
       case Opcode.UpdatePosition: {
@@ -277,6 +359,15 @@ export class GameClient {
     }
   }
 
+  private isMine(o: WorldObject | undefined): boolean {
+    return !!o && (o.container === this.playerGuid || o.wielder === this.playerGuid || this.isInMyPack(o));
+  }
+  private isInMyPack(o: WorldObject): boolean {
+    if (o.container === null) return false;
+    const pack = this.objects.get(o.container);
+    return !!pack && pack.container === this.playerGuid;
+  }
+
   private handleGameEvent(type: number, r: BinReader) {
     switch (type) {
       case 0x0004: // PopupString
@@ -288,9 +379,53 @@ export class GameClient {
       case 0x02bd: { // Tell
         const text = readString16L(r);
         const sender = readString16L(r);
-        this.events.onChat?.(text, "tell", sender);
+        r.u32(); r.u32();
+        const kind = r.u32();
+        this.events.onChat?.(text, `tell:${kind}`, sender);
         break;
       }
+      case 0x0022: { // InventoryPutObjInContainer
+        const item = r.u32();
+        const container = r.u32();
+        const o = this.objects.get(item);
+        if (o) { o.container = container; o.wielder = null; o.position = null; }
+        this.events.onObjectPickedUp?.(item);
+        this.events.onInventory?.();
+        break;
+      }
+      case 0x0023: { // WieldObject
+        const item = r.u32();
+        const location = r.i32();
+        const o = this.objects.get(item);
+        if (o) { o.wielder = this.playerGuid; o.wieldedLocation = location; o.container = null; }
+        this.events.onInventory?.();
+        break;
+      }
+      case 0x0196: { // ViewContents
+        const container = r.u32();
+        const n = r.u32();
+        for (let i = 0; i < n; i++) {
+          const guid = r.u32(); r.u32();
+          const o = this.objects.get(guid);
+          if (o) o.container = container;
+        }
+        this.events.onInventory?.();
+        break;
+      }
+      case 0x028a: { // WeenieError
+        const code = r.u32();
+        this.events.onError?.(humanize(WeenieErrorNames[code] ?? `error ${code}`));
+        break;
+      }
+      case 0x028b: { // WeenieErrorWithString
+        const code = r.u32();
+        const text = readString16L(r);
+        const name = WeenieErrorWithStringNames[code] ?? "";
+        this.events.onError?.(name && !name.endsWith("_") ? `${text} ${humanize(name)}` : text);
+        break;
+      }
+      case 0x01c7: // UseDone
+        break;
       case 0x0013: // PlayerDescription: large; we don't need it yet
         break;
       default:

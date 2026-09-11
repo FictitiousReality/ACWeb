@@ -13,10 +13,26 @@
     #login input, #login button { font: inherit; padding: 6px 8px; }
     #chars { display: grid; gap: 4px; }
     #chars button { text-align: left; }
-    #hud { position: fixed; left: 10px; bottom: 10px; width: 520px; z-index: 3; display: none; }
+    #hud { position: fixed; left: 10px; bottom: 10px; width: 560px; z-index: 3; display: none; }
     #hud.show { display: block; }
-    #chatlog { height: 180px; overflow-y: auto; background: rgba(0,0,0,.55); padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; border-radius: 6px 6px 0 0; }
+    #chatlog { height: 220px; overflow-y: auto; background: rgba(0,0,0,.6); padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 12.5px; white-space: pre-wrap; border-radius: 6px 6px 0 0; resize: vertical; }
+    #chatlog div { padding: 1px 0; }
     #chatin { width: 100%; box-sizing: border-box; font: inherit; padding: 6px 8px; background: rgba(0,0,0,.75); color: #eee; border: 1px solid #444; border-radius: 0 0 6px 6px; }
+    .c-speech { color: #e8e8e8; } .c-tell { color: #f6c0f6; } .c-outtell { color: #d9a0d9; } .c-system { color: #9ec7ff; }
+    .c-broadcast { color: #ffd27a; } .c-emote { color: #b8e0a0; } .c-error { color: #ff8b8b; } .c-debug { color: #777; }
+    .c-combat { color: #ffb070; } .c-magic { color: #a0c8ff; } .c-you { color: #ffffff; font-weight: 600; }
+    #target { position: fixed; top: 34px; left: 10px; z-index: 3; background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 6px; display: none; }
+    #target.show { display: block; }
+    #target button { font: inherit; margin-left: 6px; }
+    #inv { position: fixed; top: 34px; right: 10px; width: 300px; max-height: 70vh; overflow-y: auto; z-index: 3; background: rgba(0,0,0,.65); padding: 8px; border-radius: 6px; display: none; }
+    #inv.show { display: block; }
+    #inv h3 { margin: 0 0 6px; font-size: 13px; }
+    .item { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+    .item:hover { background: rgba(255,255,255,.08); } .item.sel { background: rgba(120,160,255,.25); }
+    .item img { width: 24px; height: 24px; image-rendering: pixelated; }
+    .item .eq { opacity: .6; font-size: 11px; }
+    #invActions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+    #invActions button { font: inherit; }
     #status { position: fixed; top: 8px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; opacity: .85; z-index: 3; white-space: pre; }
     #help { position: fixed; right: 10px; bottom: 8px; opacity: .6; z-index: 3; text-align: right; font-size: 12px; }
     .err { color: #f77; }
@@ -49,11 +65,13 @@
     </form>
   </div>
   <div id="status"></div>
+  <div id="target"><span id="targetName"></span><button id="btnUse" type="button">Use (U)</button><button id="btnGive" type="button">Give item</button><button id="btnClear" type="button">×</button></div>
+  <div id="inv"><h3>Inventory (I)</h3><div id="invList"></div><div id="invActions"><button id="invUse" type="button">Use</button><button id="invGive" type="button">Give to target</button><button id="invDrop" type="button">Drop</button></div></div>
   <div id="hud">
     <div id="chatlog"></div>
     <input id="chatin" placeholder="say something… (Enter)">
   </div>
-  <div id="help">W/S move · A/D turn · Q/E sidestep · hold Shift to walk · drag mouse to orbit camera · wheel zoom</div>
+  <div id="help">W/S move · A/D turn · Q/E sidestep · Shift walk · click an object to target · U use · I inventory · Enter chat (/tell name, msg · /e emote · @cmd)</div>
   <script type="module" src="dist/play.js"></script>
 </body>
 </html>

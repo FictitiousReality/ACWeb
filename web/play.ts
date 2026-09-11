@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { DatDatabase, HttpRangeSource } from "../src/dat/mod.ts";
-import { Assets } from "../src/render/assets.ts";
+import { Assets, iconDataUrl } from "../src/render/assets.ts";
 import { WorldStreamer } from "../src/render/streamer.ts";
 import { NetWorld, positionToWorld } from "../src/render/networld.ts";
 import { PlayerController } from "../src/render/player.ts";
@@ -15,7 +15,7 @@ const statusEl = $("status");
 const chatlog = $("chatlog");
 const loginStatus = $("loginStatus");
 function log(line: string, cls = "") {
-  console.log(line);
+  if (cls !== "c-debug") console.log(line);
   const div = document.createElement("div");
   div.textContent = line;
   if (cls) div.className = cls;
@@ -185,9 +185,20 @@ $("loginForm").addEventListener("submit", async (ev) => {
     loginStatus.textContent = "connecting...";
     client?.disconnect();
     client = new GameClient(relay, iterations, {
-      onLog: (l) => { log(l); loginStatus.textContent = l; },
+      onLog: (l) => { log(l, l.startsWith("<<") || l.startsWith(">>") ? "c-debug" : "c-system"); loginStatus.textContent = l; },
       onState: (s, d) => { statusEl.textContent = `${s}${d ? " " + d : ""}`; if (s === "error" || s === "closed") loginStatus.textContent = `${s}: ${d ?? ""}`; },
-      onChat: (text, kind, sender) => log(sender ? `${sender}: ${text}` : text, kind.startsWith("system") ? "" : ""),
+      onChat: (text, kind, sender) => {
+        const [k, sub] = kind.split(":");
+        const n = Number(sub);
+        if (k === "speech") log(`${sender} says, "${text}"`, "c-speech");
+        else if (k === "tell") log(`${sender} tells you, "${text}"`, "c-tell");
+        else if (k === "emote") log(text, "c-emote");
+        else if (k === "system") log(text, n === 4 ? "c-outtell" : n === 0x14 || n === 0 ? "c-broadcast" : n === 6 || n === 0x15 || n === 0x16 ? "c-combat" : n === 7 || n === 0x11 ? "c-magic" : "c-system");
+        else log(text, "c-system");
+      },
+      onError: (text) => log(text, "c-error"),
+      onInventory: () => renderInventory(),
+      onObjectPickedUp: (g) => netWorld?.remove(g),
       onCharacterList: showCharacters,
       onCharacterCreated: (result, _guid, name) => { loginStatus.textContent = result === "Ok" ? `created ${name}` : `create failed: ${result}`; },
       onEnterWorld: onEnterWorld,
@@ -240,7 +251,8 @@ async function onEnterWorld(guid: number) {
   }
   log(`entered world as ${me?.name ?? guid.toString(16)}`);
   // objects that arrived before the player entry
-  for (const o of client!.objects.values()) if (o.guid !== guid) netWorld!.create(o);
+  for (const o of client!.objects.values()) if (o.guid !== guid) netWorld!.create(o).then((e) => { if (e) e.root.userData.guid = o.guid; });
+  renderInventory();
 }
 
 function onObject(o: WorldObject) {
@@ -249,7 +261,7 @@ function onObject(o: WorldObject) {
     if (player && o.position) player.setFromPosition(o.position);
     return;
   }
-  if (player) netWorld.create(o);
+  if (player) netWorld.create(o).then((e) => { if (e) e.root.userData.guid = o.guid; });
 }
 
 $("chatin").addEventListener("keydown", (e) => {
@@ -257,8 +269,108 @@ $("chatin").addEventListener("keydown", (e) => {
   const inp = e.target as HTMLInputElement;
   const text = inp.value.trim();
   inp.value = "";
-  if (text && client) { client.say(text); log(`You say, "${text}"`); }
+  if (text && client) sendChat(text);
   inp.blur();
+});
+function sendChat(text: string) {
+  if (!client) return;
+  const m = text.match(/^\/(\w+)\s*(.*)$/s);
+  if (!m) { client.say(text); log(`You say, "${text}"`, "c-you"); return; }
+  const cmd = m[1].toLowerCase(), rest = m[2].trim();
+  if (cmd === "tell" || cmd === "t" || cmd === "r") {
+    // "/tell Name, message" or "/t Name message"
+    let name: string, msg: string;
+    if (rest.includes(",")) { name = rest.slice(0, rest.indexOf(",")).trim(); msg = rest.slice(rest.indexOf(",") + 1).trim(); }
+    else { const i = rest.indexOf(" "); name = i < 0 ? rest : rest.slice(0, i); msg = i < 0 ? "" : rest.slice(i + 1).trim(); }
+    if (!name || !msg) { log("usage: /tell Name, message", "c-error"); return; }
+    client.tell(name, msg);
+  } else if (cmd === "e" || cmd === "me" || cmd === "emote") { client.emote(rest); log(`${myName()} ${rest}`, "c-emote"); }
+  else if (cmd === "s" || cmd === "say") { client.say(rest); log(`You say, "${rest}"`, "c-you"); }
+  else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
+  else if (cmd === "inv" || cmd === "i") toggleInventory();
+  else log(`unknown command /${cmd}`, "c-error");
+}
+function myName(): string {
+  return client?.objects.get(client.playerGuid)?.name ?? "You";
+}
+addEventListener("keydown", (e) => {
+  if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+  if (!player) return;
+  if (e.key === "Enter") { e.preventDefault(); $("chatin").focus(); }
+  else if (e.code === "KeyI") toggleInventory();
+  else if (e.code === "KeyU" && targetGuid && client) client.use(targetGuid);
+  else if (e.key === "Escape") setTarget(null);
+});
+
+// ---------- targeting ----------
+let targetGuid: number | null = null;
+function setTarget(guid: number | null) {
+  targetGuid = guid;
+  const o = guid !== null ? client?.objects.get(guid) : null;
+  $("target").classList.toggle("show", !!o);
+  $("targetName").textContent = o ? `${o.name}` : "";
+}
+$("btnUse").addEventListener("click", () => { if (targetGuid && client) client.use(targetGuid); });
+$("btnClear").addEventListener("click", () => setTarget(null));
+$("btnGive").addEventListener("click", () => { toggleInventory(true); });
+let downX = 0, downY = 0;
+renderer.domElement.addEventListener("mousedown", (e: MouseEvent) => { downX = e.clientX; downY = e.clientY; });
+renderer.domElement.addEventListener("click", (e: MouseEvent) => {
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4 || !netWorld) return; // a drag, not a click
+  const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  const rc = new THREE.Raycaster();
+  rc.setFromCamera(ndc, camera);
+  const hits = rc.intersectObjects([...netWorld.entities.values()].map((en) => en.root), true);
+  for (const h of hits) {
+    let o: THREE.Object3D | null = h.object;
+    while (o && o.userData.guid === undefined) o = o.parent;
+    if (o) { setTarget(o.userData.guid as number); return; }
+  }
+  setTarget(null);
+});
+
+// ---------- inventory ----------
+let invSelected: number | null = null;
+const iconCache = new Map<number, Promise<string | null>>();
+function icon(id: number): Promise<string | null> {
+  let p = iconCache.get(id);
+  if (!p) { p = assets ? iconDataUrl(assets, id) : Promise.resolve(null); iconCache.set(id, p); }
+  return p;
+}
+function toggleInventory(show?: boolean) {
+  const el = $("inv");
+  el.classList.toggle("show", show ?? !el.classList.contains("show"));
+  if (el.classList.contains("show")) renderInventory();
+}
+async function renderInventory() {
+  if (!client || !$("inv").classList.contains("show")) return;
+  const list = $("invList");
+  const items = client.inventory().sort((a, b) => (a.wielder ? 0 : 1) - (b.wielder ? 0 : 1) || a.name.localeCompare(b.name));
+  list.innerHTML = "";
+  for (const o of items) {
+    const row = document.createElement("div");
+    row.className = "item" + (o.guid === invSelected ? " sel" : "");
+    const img = document.createElement("img");
+    img.alt = "";
+    icon(o.icon).then((u) => { if (u) img.src = u; });
+    const name = document.createElement("span");
+    name.textContent = o.stackSize > 1 ? `${o.name} ×${o.stackSize}` : o.name;
+    row.append(img, name);
+    if (o.wielder) { const eq = document.createElement("span"); eq.className = "eq"; eq.textContent = "(worn)"; row.append(eq); }
+    row.onclick = () => { invSelected = o.guid; renderInventory(); };
+    row.ondblclick = () => client!.use(o.guid);
+    list.appendChild(row);
+  }
+  if (!items.length) list.textContent = "(empty)";
+}
+$("invUse").addEventListener("click", () => { if (invSelected && client) client.use(invSelected); });
+$("invDrop").addEventListener("click", () => { if (invSelected && client) client.drop(invSelected); });
+$("invGive").addEventListener("click", () => {
+  if (!client || !invSelected) return;
+  if (!targetGuid) { log("select a target first (click an NPC)", "c-error"); return; }
+  const item = client.objects.get(invSelected);
+  client.give(targetGuid, invSelected, item?.stackSize ?? 1);
+  log(`giving ${item?.name ?? "item"} to ${client.objects.get(targetGuid)?.name ?? "target"}...`, "c-system");
 });
 
 // ---------- frame loop ----------

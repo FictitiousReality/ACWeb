@@ -140,6 +140,23 @@ export class Assets {
   }
 }
 
+export async function iconDataUrl(assets: Assets, textureId: number): Promise<string | null> {
+  if (!textureId || typeof document === "undefined") return null;
+  const t = await assets.portal.get(textureId, parseTexture);
+  if (!t) return null;
+  let palette: Uint32Array | undefined;
+  if (t.defaultPaletteId) palette = (await assets.portal.get(t.defaultPaletteId, parsePalette))?.colors;
+  const img = decodeTexture(t, { palette });
+  if (!img) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width; canvas.height = img.height;
+  const ctx = canvas.getContext("2d")!;
+  const id = ctx.createImageData(img.width, img.height);
+  id.data.set(img.data);
+  ctx.putImageData(id, 0, 0);
+  return canvas.toDataURL();
+}
+
 function isPow2(n: number): boolean {
   return (n & (n - 1)) === 0;
 }

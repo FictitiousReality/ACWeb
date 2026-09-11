@@ -28,7 +28,9 @@ export interface WorldObject {
   scale: number;
   position: Position | null;
   parent: number | null;
-  /** ParentLocation (RightHand=1, LeftHand=2, Shield=3, Belt=4, Quiver=5 ...) when parented */
+  /** true when the physics description parents this object to a creature (held/worn), not merely carried in a pack */
+  held: boolean;
+  /** ParentLocation (RightHand=1, LeftHand=2, Shield=3, Belt=4, Quiver=5 ...) when held */
   parentLocation: number;
   /** Placement id selecting the child's placement frame */
   placement: number;
@@ -282,7 +284,7 @@ export class GameClient {
           guid: co.guid, name: co.weenie.name, wcid: co.weenie.wcid, setup: co.physics.setup ?? 0, mtable: co.physics.mtable ?? 0, petable: co.physics.petable ?? 0,
           physicsState: co.physics.state, defaultScript: co.physics.defaultScript ?? 0, defaultScriptIntensity: co.physics.defaultScriptIntensity ?? 1,
           scale: co.physics.scale ?? 1, position: co.physics.position ?? null, parent: co.physics.parent?.id ?? co.weenie.wielder ?? co.weenie.container ?? null,
-          parentLocation: co.physics.parent?.location ?? 0, placement: co.physics.placement ?? 0,
+          held: !!co.physics.parent, parentLocation: co.physics.parent?.location ?? 0, placement: co.physics.placement ?? 0,
           container: co.weenie.container ?? null, wielder: co.weenie.wielder ?? null, wieldedLocation: co.weenie.wieldedLocation ?? 0,
           stackSize: co.weenie.stackSize ?? 1, value: co.weenie.value ?? 0, icon: co.weenie.icon,
           objectFlags: co.weenie.objectFlags, itemType: co.weenie.itemType, movement: co.physics.movement, raw: co,
@@ -344,7 +346,7 @@ export class GameClient {
         const creature = r.u32(), item = r.u32(), location = r.i32(), placement = r.i32();
         const o = this.objects.get(item);
         if (o) {
-          o.parent = creature; o.parentLocation = location; o.placement = placement; o.position = null;
+          o.parent = creature; o.held = true; o.parentLocation = location; o.placement = placement; o.position = null;
           o.wielder = creature; o.container = null;
           this.events.onObjectParented?.(o);
           if (creature === this.playerGuid) this.events.onInventory?.();

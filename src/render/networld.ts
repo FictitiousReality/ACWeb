@@ -79,7 +79,8 @@ export class NetWorld {
   /** Place a held/worn item on its parent's holding location (Setup.holdingLocations). */
   async attach(obj: WorldObject): Promise<boolean> {
     this.detach(obj.guid);
-    if (!obj.parent || !obj.setup) return false;
+    // only physically parented objects (held/worn) are drawn; pack contents merely have a container
+    if (!obj.parent || !obj.held || !obj.parentLocation || !obj.setup) return false;
     const host = this.hostModel(obj.parent);
     if (!host) { this.pendingChildren.set(obj.guid, obj); return false; }
     const loc = host.setup.holdingLocations.get(obj.parentLocation);
@@ -123,7 +124,7 @@ export class NetWorld {
 
   async create(obj: WorldObject, isPlayer = false): Promise<Entity | null> {
     this.remove(obj.guid);
-    if (obj.parent) { await this.attach(obj); return null; } // held or worn by someone: rides on their model
+    if (obj.parent) { if (obj.held) await this.attach(obj); return null; } // held or worn: rides on their model; pack contents: nothing
     if (!obj.setup || !obj.position) return null; // inventory / no model
     const root = new THREE.Group();
     root.name = `obj_${obj.guid.toString(16)}_${obj.name}`;

@@ -12,7 +12,7 @@ DatLoader / physics / network code and from ACViewer. Educational and
 non-commercial. Never redistribute the DAT files. This is an unofficial client:
 check the rules of any server before connecting to it.
 
-<img width="1332" height="1317" alt="IMG_3707" src="https://github.com/user-attachments/assets/e0007ad2-ee32-4f26-8ef7-856a420905af" />
+<img alt="acweb in Holtburg on Coldeve: players, a portal, a lifestone and buildings under the sky" src="docs/screenshot.jpg" />
 
 
 ## What works

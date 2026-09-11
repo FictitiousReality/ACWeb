@@ -9,7 +9,8 @@ import { NetSession, RelayTransport, type GameMessage, type SessionState } from 
 import {
   buildAutonomousPosition, buildCharacterEnterWorld, buildCharacterEnterWorldRequest, buildDDDResponse, buildLoginComplete,
   buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
-  buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
+  buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote,
+  buildTurbineChat, parseTurbineChat, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
 } from "./messages.ts";
@@ -68,6 +69,8 @@ export class GameClient {
   playerGuid = 0;
   readonly objects = new Map<number, WorldObject>();
   playerSequences: ObjectSequences = { instance: 1, serverControl: 0, teleport: 0, forcePosition: 0 };
+  /** allegiance chat channel id, 0 if not in an allegiance */
+  allegianceChannel = 0;
   private enterWorldSent = false;
   private loginCompleteSent = false;
 
@@ -134,6 +137,10 @@ export class GameClient {
 
   say(text: string) {
     this.send(buildTalk(text), Group.Weenie);
+  }
+  /** Say something on a Turbine channel (General 2, Trade 3, LFG 4, Allegiance 1). */
+  channelSay(channel: number, text: string) {
+    this.send(buildTurbineChat(channel, text, this.playerGuid), Group.Login);
   }
   tell(target: string, text: string) {
     this.send(buildTell(text, target), Group.Weenie);
@@ -373,6 +380,13 @@ export class GameClient {
         this.events.onChat?.(text, `speech:${kind}`, sender);
         break;
       }
+      case Opcode.TurbineChat: {
+        const tc = parseTurbineChat(r);
+        if (tc.kind === "event" && tc.text !== undefined) {
+          this.events.onChat?.(tc.text, `channel:${tc.channel}`, tc.sender);
+        }
+        break;
+      }
       case Opcode.AccountBoot: {
         const reason = r.remaining >= 2 ? readString16L(r) : "";
         this.log(`booted: ${reason}`);
@@ -457,6 +471,11 @@ export class GameClient {
       }
       case 0x01c7: // UseDone
         break;
+      case 0x0295: { // SetTurbineChatChannels: allegiance, general, trade, lfg, roleplay, olthoi, society...
+        this.allegianceChannel = r.u32();
+        this.events.onLog?.(`chat channels ready (allegiance ${this.allegianceChannel || "none"})`);
+        break;
+      }
       case 0x0013: // PlayerDescription: large; we don't need it yet
         break;
       default:

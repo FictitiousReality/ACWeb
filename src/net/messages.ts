@@ -35,6 +35,7 @@ export const Opcode = {
   GameEvent: 0xf7b0,
   GameAction: 0xf7b1,
   AccountBanned: 0xf7c1,
+  TurbineChat: 0xf7de,
   CharacterEnterWorldRequest: 0xf7c8,
   AccountBoot: 0xf7dc,
   UpdateObject: 0xf7db,
@@ -584,4 +585,77 @@ export function parseCharacterCreateResponse(r: BinReader): { result: number; gu
     return { result, guid, name };
   }
   return { result };
+}
+
+
+// ---------- Turbine chat (General / Trade / LFG / Allegiance channels) ----------
+
+export const TurbineChannel = { Allegiance: 1, General: 2, Trade: 3, LFG: 4, Roleplay: 5, Society: 6, Olthoi: 10 } as const;
+export const TurbineChannelNames: Record<number, string> = { 1: "Allegiance", 2: "General", 3: "Trade", 4: "LFG", 5: "Roleplay", 6: "Society", 10: "Olthoi" };
+
+function readPackedUnicode(r: BinReader): string {
+  let len = r.u8();
+  if (len & 0x80) len = ((len & 0x7f) << 8) | r.u8();
+  let s = "";
+  for (let i = 0; i < len; i++) s += String.fromCharCode(r.u16());
+  return s;
+}
+function writePackedUnicode(w: BinWriter, s: string) {
+  if (s.length < 128) w.u8(s.length);
+  else { w.u8(0x80 | (s.length >> 8)); w.u8(s.length & 0xff); }
+  for (let i = 0; i < s.length; i++) w.u16(s.charCodeAt(i));
+}
+
+export interface TurbineChatMessage {
+  kind: "event" | "response" | "other";
+  channel: number;
+  sender?: string;
+  text?: string;
+  senderId?: number;
+  chatType?: number;
+}
+
+export function parseTurbineChat(r: BinReader): TurbineChatMessage {
+  r.u32(); // bytes to follow
+  const blobType = r.u32();
+  r.u32(); // dispatch type
+  r.u32(); r.u32(); r.u32(); r.u32(); r.u32();
+  r.u32(); // bytes to follow
+  if (blobType === 1) { // NETBLOB_EVENT_BINARY
+    const channel = r.u32();
+    const sender = readPackedUnicode(r);
+    const text = readPackedUnicode(r);
+    r.u32(); // 0x0C
+    const senderId = r.u32();
+    r.u32();
+    const chatType = r.u32();
+    return { kind: "event", channel, sender, text, senderId, chatType };
+  }
+  if (blobType === 5) { // NETBLOB_RESPONSE_BINARY: ack of our own send
+    return { kind: "response", channel: r.u32() };
+  }
+  return { kind: "other", channel: 0 };
+}
+
+let turbineContext = 0;
+/** Client -> server chat on a Turbine channel. chatType matches the channel id for the public channels. */
+export function buildTurbineChat(channel: number, text: string, senderGuid: number, chatType = channel): Uint8Array {
+  const w = message(Opcode.TurbineChat);
+  const firstSize = w.pos;
+  w.u32(0);
+  w.u32(3); // NETBLOB_REQUEST_BINARY
+  w.u32(2); // ASYNCMETHOD_SENDTOROOMBYID
+  w.u32(1).u32(0).u32(0).u32(0).u32(0);
+  const secondSize = w.pos;
+  w.u32(0);
+  w.u32((++turbineContext & 0x7f) || 1); // context id
+  w.u32(2).u32(2);
+  w.u32(channel);
+  writePackedUnicode(w, text);
+  w.u32(0x0c).u32(senderGuid).u32(0).u32(chatType);
+  const bytes = w.toBytes();
+  const view = new DataView(bytes.buffer);
+  view.setUint32(firstSize, bytes.length - firstSize - 4, true);
+  view.setUint32(secondSize, bytes.length - secondSize - 4, true);
+  return bytes;
 }

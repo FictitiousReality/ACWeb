@@ -15,16 +15,22 @@ const statusEl = $("status");
 const loginStatus = $("loginStatus");
 
 // ---------- chat panel with tabs ----------
-type Tab = "all" | "chat" | "system" | "debug";
-const TABS: Tab[] = ["all", "chat", "system", "debug"];
+type Tab = "all" | "chat" | "general" | "trade" | "lfg" | "system" | "debug";
+const TABS: Tab[] = ["all", "chat", "general", "trade", "lfg", "system", "debug"];
+const CHANNEL_TABS: Record<number, Tab> = { 2: "general", 3: "trade", 4: "lfg" };
+const TAB_CHANNEL: Partial<Record<Tab, number>> = { general: 2, trade: 3, lfg: 4 };
 let activeTab: Tab = "all";
 let showTimestamps = false;
-const unread: Record<Tab, number> = { all: 0, chat: 0, system: 0, debug: 0 };
+const unread: Record<Tab, number> = { all: 0, chat: 0, general: 0, trade: 0, lfg: 0, system: 0, debug: 0 };
 const CHAT_CLASSES = new Set(["c-speech", "c-tell", "c-outtell", "c-emote", "c-you", "c-broadcast"]);
 const MAX_LINES = 400;
 
 function tabsFor(cls: string): Tab[] {
   if (cls === "c-debug") return ["debug"];
+  if (cls === "c-general") return ["all", "general"];
+  if (cls === "c-trade") return ["all", "trade"];
+  if (cls === "c-lfg") return ["all", "lfg"];
+  if (cls === "c-allegiance") return ["all", "chat"];
   if (CHAT_CLASSES.has(cls)) return ["all", "chat"];
   return ["all", "system"];
 }
@@ -77,6 +83,8 @@ function setTab(tab: Tab) {
   const box = $(`log-${tab}`);
   box.scrollTop = box.scrollHeight;
   updateBadges();
+  const ch = TAB_CHANNEL[tab];
+  $<HTMLInputElement>("chatin").placeholder = ch ? `say on ${tab} (Enter) · /s to say locally` : "say something… (Enter · /tell Name, msg · /r reply · /e emote · /g /tr /lfg channels · @cmd)";
 }
 for (const b of document.querySelectorAll<HTMLButtonElement>("#chattabs button[data-tab]")) b.onclick = () => setTab(b.dataset.tab as Tab);
 $("chatClear").onclick = () => { $(`log-${activeTab}`).innerHTML = ""; };
@@ -251,6 +259,12 @@ $("loginForm").addEventListener("submit", async (ev) => {
         if (k === "speech") log(`${sender} says, "${text}"`, "c-speech", sender);
         else if (k === "tell") { lastTeller = sender ?? lastTeller; log(`${sender} tells you, "${text}"`, "c-tell", sender); }
         else if (k === "emote") log(text, "c-emote");
+        else if (k === "channel") {
+          const ch = Number(sub);
+          const cls = ch === 2 ? "c-general" : ch === 3 ? "c-trade" : ch === 4 ? "c-lfg" : "c-allegiance";
+          const name = ch === 2 ? "General" : ch === 3 ? "Trade" : ch === 4 ? "LFG" : ch === client!.allegianceChannel && ch ? "Allegiance" : `Ch${ch}`;
+          log(`[${name}] ${sender}: ${text}`, cls, undefined);
+        }
         else if (k === "system") log(text, n === 4 ? "c-outtell" : n === 0x14 || n === 0 ? "c-broadcast" : n === 6 || n === 0x15 || n === 0x16 ? "c-combat" : n === 7 || n === 0x11 ? "c-magic" : "c-system");
         else log(text, "c-system");
       },
@@ -344,7 +358,12 @@ function sendChat(text: string) {
     return;
   }
   const m = text.match(/^\/(\w+)\s*(.*)$/s);
-  if (!m) { client.say(text); log(`You say, "${text}"`, "c-you"); return; }
+  if (!m) {
+    // plain text goes to the channel of the active tab, otherwise local say
+    const ch = TAB_CHANNEL[activeTab];
+    if (ch) { channelSay(ch, text); return; }
+    client.say(text); log(`You say, "${text}"`, "c-you"); return;
+  }
   const cmd = m[1].toLowerCase(), rest = m[2].trim();
   if (cmd === "tell" || cmd === "t") {
     // "/tell Name, message" or "/t Name message"
@@ -355,9 +374,18 @@ function sendChat(text: string) {
     client.tell(name, msg);
   } else if (cmd === "e" || cmd === "me" || cmd === "emote") { client.emote(rest); log(`${myName()} ${rest}`, "c-emote"); }
   else if (cmd === "s" || cmd === "say") { client.say(rest); log(`You say, "${rest}"`, "c-you"); }
+  else if (cmd === "g" || cmd === "general") channelSay(2, rest);
+  else if (cmd === "tr" || cmd === "trade") channelSay(3, rest);
+  else if (cmd === "lfg") channelSay(4, rest);
+  else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
   else if (cmd === "inv" || cmd === "i") toggleInventory();
   else log(`unknown command /${cmd}`, "c-error");
+}
+function channelSay(channel: number, text: string) {
+  if (!client || !text) return;
+  // the server echoes channel messages back to the sender, so no local echo here
+  client.channelSay(channel, text);
 }
 function myName(): string {
   return client?.objects.get(client.playerGuid)?.name ?? "You";

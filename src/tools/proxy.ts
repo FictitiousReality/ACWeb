@@ -32,6 +32,7 @@ Deno.serve({ port: listenPort, hostname: "127.0.0.1" }, async (req) => {
   socket.binaryType = "arraybuffer";
   const udp = Deno.listenDatagram({ port: 0, transport: "udp", hostname: "0.0.0.0" });
   let closed = false;
+  let rx = 0, tx = 0;
   console.log(`[relay] client -> ${host} (${ip}):${port}/${port + 1}`);
 
   (async () => {
@@ -40,6 +41,7 @@ Deno.serve({ port: listenPort, hostname: "127.0.0.1" }, async (req) => {
         if (closed) break;
         const from = addr as Deno.NetAddr;
         const offset = from.port === port + 1 ? 1 : 0;
+        if (++rx <= 3) console.log(`[relay] <- ${from.hostname}:${from.port} ${data.length} bytes`);
         const framed = new Uint8Array(data.length + 1);
         framed[0] = offset;
         framed.set(data, 1);
@@ -54,6 +56,7 @@ Deno.serve({ port: listenPort, hostname: "127.0.0.1" }, async (req) => {
     const msg = new Uint8Array(ev.data as ArrayBuffer);
     if (msg.length < 1) return;
     const offset = msg[0];
+    if (++tx <= 3) console.log(`[relay] -> ${ip}:${port + offset} ${msg.length - 1} bytes`);
     try {
       await udp.send(msg.subarray(1), { transport: "udp", hostname: ip, port: port + offset });
     } catch (e) {
@@ -63,7 +66,7 @@ Deno.serve({ port: listenPort, hostname: "127.0.0.1" }, async (req) => {
   socket.onclose = () => {
     closed = true;
     try { udp.close(); } catch { /* ignore */ }
-    console.log("[relay] client closed");
+    console.log(`[relay] client closed (sent ${tx}, received ${rx} datagrams)`);
   };
   socket.onerror = () => socket.close();
   return response;

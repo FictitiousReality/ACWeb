@@ -6,7 +6,8 @@
     "build": "deno bundle --platform browser --sourcemap linked -o web/dist/main.js web/main.ts && deno bundle --platform browser --sourcemap linked -o web/dist/play.js web/play.ts",
     "watch": "deno bundle --platform browser --sourcemap linked --watch -o web/dist/main.js web/main.ts",
     "serve": "deno run --allow-read --allow-net --allow-env src/tools/serve.ts",
-    "proxy": "deno run --unstable-net --allow-net src/tools/proxy.ts"
+    "proxy": "deno run --unstable-net --allow-net src/tools/proxy.ts",
+    "probe": "deno run --unstable-net --allow-net src/tools/probe.ts"
   },
   "imports": {
     "three": "npm:three@0.170.0",

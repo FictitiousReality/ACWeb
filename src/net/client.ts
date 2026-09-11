@@ -48,6 +48,8 @@ export interface ClientEvents {
   onObjectMotion?(obj: WorldObject, movement: MovementData): void;
   onObjectDelete?(guid: number): void;
   onPlayerTeleport?(): void;
+  /** the server is commanding our own character to move/turn (e.g. facing an NPC on use) */
+  onPlayerMotion?(movement: MovementData): void;
   /** inventory/equipment of the player changed (item added, removed, wielded, stack changed) */
   onInventory?(): void;
   /** an item left the 3D world (picked up by someone) */
@@ -102,6 +104,21 @@ export class GameClient {
 
   private send(data: Uint8Array, group: number) {
     this.session?.send(data, group);
+  }
+
+  private loginCompleteTimer: number | undefined;
+  /**
+   * Send LoginComplete after things settle. Called on first enter-world and after
+   * every PlayerTeleport; debounced so a burst of create/teleport messages results
+   * in a single LoginComplete once the burst stops.
+   */
+  private scheduleLoginComplete() {
+    if (this.loginCompleteTimer !== undefined) clearTimeout(this.loginCompleteTimer);
+    this.loginCompleteTimer = setTimeout(() => {
+      this.loginCompleteTimer = undefined;
+      this.send(buildLoginComplete(), Group.Weenie);
+      this.log("sent LoginComplete");
+    }, 700) as unknown as number;
   }
 
   enterWorld(characterId: number) {
@@ -236,9 +253,9 @@ export class GameClient {
           this.playerSequences = { instance: s[8], serverControl: s[5], teleport: s[4], forcePosition: s[6] };
           if (!this.loginCompleteSent) {
             this.loginCompleteSent = true;
-            setTimeout(() => this.send(buildLoginComplete(), Group.Weenie), 500);
             this.events.onEnterWorld?.(this.playerGuid);
           }
+          this.scheduleLoginComplete();
         }
         if (existed) this.events.onObjectUpdate?.(obj);
         else this.events.onObjectCreate?.(obj);
@@ -305,12 +322,26 @@ export class GameClient {
             this.playerSequences.serverControl = mm.movement.serverControlSeq;
           }
           this.events.onObjectMotion?.(obj, mm.movement);
+          if (mm.guid === this.playerGuid) this.events.onPlayerMotion?.(mm.movement);
         }
         break;
       }
       case Opcode.PlayerTeleport: {
         this.playerSequences.teleport = r.u16();
+        // A teleport puts us back in the "teleporting" state server-side; we must
+        // finish loading and send LoginComplete again to clear it. Without this the
+        // server rejects our movement and answers actions with "You're too busy".
+        this.scheduleLoginComplete();
         this.events.onPlayerTeleport?.();
+        break;
+      }
+      case Opcode.SetState: {
+        const guid = r.u32();
+        const state = r.u32();
+        const obj = this.objects.get(guid);
+        if (obj) obj.raw.physics.state = state;
+        this.playerSequences.instance = r.u16();
+        if (guid === this.playerGuid) this.events.onLog?.(`physics state 0x${state.toString(16)}`);
         break;
       }
       case Opcode.ObjDescEvent: {

@@ -206,6 +206,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onObjectUpdate: (o) => onObject(o),
       onObjectPosition: (o, u) => { if (o.guid === client!.playerGuid) { player?.setFromPosition(u.position); } else netWorld?.onPosition(o, u); },
       onObjectMotion: (o, m) => { if (o.guid !== client!.playerGuid) netWorld?.onMotion(o, m); },
+      onPlayerMotion: (m) => { if (player && (m.type === 8 || m.type === 9) && m.moveTo) player.faceHeading(m.moveTo.heading); },
       onObjectDelete: (g) => netWorld?.remove(g),
     });
     client.connect(host, port, account, password);

@@ -89,6 +89,12 @@ export class PlayerController {
     };
   }
 
+  /** Face an AC heading (degrees, 0 = north, clockwise) — used when the server turns us to an NPC. */
+  faceHeading(headingDeg: number) {
+    this.yaw = -headingDeg * Math.PI / 180;
+    this.root.rotation.set(0, 0, this.yaw);
+  }
+
   update(dt: number) {
     const k = this.keys;
     const fwd = k.has("KeyW") || k.has("ArrowUp");

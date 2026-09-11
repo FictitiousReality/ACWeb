@@ -98,7 +98,10 @@ export class WorldStreamer {
       }
       this.loaded.set(id, objs);
     } catch (e) {
-      this.onLog?.(`landblock ${id.toString(16)} failed: ${(e as Error).message}`);
+      this.onLog?.(`landblock ${id.toString(16)} failed: ${(e as Error).message} (will retry)`);
+      for (const o of objs) o.parent?.remove(o);
+      // retry on the next update pass
+      setTimeout(() => { this.centerX = -1; }, 2000);
     } finally {
       this.loading.delete(id);
     }

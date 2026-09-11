@@ -51,9 +51,27 @@ export class BlobSource implements DatSource {
   }
 }
 
-/** HTTP source using Range requests (server must support them). */
+/**
+ * HTTP source using Range requests (server must support them). Requests are
+ * limited to a small number in flight and retried on transient failure, since
+ * a dungeon landblock can fan out into thousands of small reads at once.
+ */
 export class HttpRangeSource implements DatSource {
+  static maxInFlight = 6;
+  private static inFlight = 0;
+  private static waiters: (() => void)[] = [];
+
   private constructor(readonly url: string, readonly size: number) {}
+
+  private static async acquire(): Promise<void> {
+    if (HttpRangeSource.inFlight < HttpRangeSource.maxInFlight) { HttpRangeSource.inFlight++; return; }
+    await new Promise<void>((resolve) => HttpRangeSource.waiters.push(resolve));
+    HttpRangeSource.inFlight++;
+  }
+  private static release() {
+    HttpRangeSource.inFlight--;
+    HttpRangeSource.waiters.shift()?.();
+  }
 
   static async open(url: string): Promise<HttpRangeSource> {
     const head = await fetch(url, { method: "HEAD" });
@@ -65,9 +83,23 @@ export class HttpRangeSource implements DatSource {
 
   async read(offset: number, length: number): Promise<Uint8Array> {
     const end = Math.min(this.size, offset + length) - 1;
-    const res = await fetch(this.url, { headers: { Range: `bytes=${offset}-${end}` } });
-    if (res.status !== 206) throw new Error(`Range request to ${this.url} returned ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
+    await HttpRangeSource.acquire();
+    try {
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const res = await fetch(this.url, { headers: { Range: `bytes=${offset}-${end}` } });
+          if (res.status === 206) return new Uint8Array(await res.arrayBuffer());
+          lastErr = new Error(`Range request to ${this.url} returned ${res.status}`);
+        } catch (e) {
+          lastErr = e;
+        }
+        await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+      }
+      throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+    } finally {
+      HttpRangeSource.release();
+    }
   }
 }
 

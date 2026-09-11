@@ -34,15 +34,21 @@ check the rules of any server before connecting to it.
   character list, character creation, enter world, object streaming,
   positions, motions, chat (local, tells, emotes, General/Trade/LFG/Allegiance),
   Use / Give / Drop, inventory, recalls.
-- **Client UI**: login and character creation, world streaming around the
-  player, third-person camera, click-to-target, inventory with the game's icons,
-  tabbed chat with unread badges.
+- **Sky and lighting**: the region's sky objects (dome, horizon, sun, moon,
+  scrolling clouds) drawn around the camera, with time-of-day keyframed sun,
+  ambient and fog driving the lights and terrain shader; Dereth time follows
+  the server clock.
+- **Client UI**: login and character creation, two-ring world streaming
+  (full detail near the player, terrain-only to the horizon), third-person
+  camera, click-to-target, inventory with the game's icons, tabbed chat with
+  unread badges and Turbine channels, recall commands.
 
 ## Not yet
 
-Combat, spellcasting, vendors, allegiance, fellowship, housing, water and sky
-rendering, collision against walls (you walk through them; floors and terrain
-are followed), particle effects, sound.
+Combat, spellcasting, vendors, allegiance, fellowship, housing, water
+surfaces, collision against walls (you walk through them; floors and terrain
+are followed), particle effects (including rain in the Rainy day groups),
+sound.
 
 ## Running
 
@@ -170,3 +176,23 @@ ACViewer and from testing against the real files and a real server.
 - Terrain uses two `DataArrayTexture`s (terrain textures, alpha masks) and a
   single-pass blend shader ported from ACViewer; per-vertex attributes carry
   layer indices and rotated alpha UVs for up to three overlays and two roads.
+- Appearance (ObjDesc) on creatures: replace Setup parts by index with the
+  listed GfxObjs (clothing, hair), swap textures per part by original
+  SurfaceTexture id, and build one palette per object (base palette with the
+  sub-palette ranges copied in) for its indexed textures. Cache per distinct
+  outfit; crowds share materials.
+- Sky: the region's SkyDesc lists day groups (Sunny/Clear/Cloudy/Rainy), each
+  with sky GfxObjs (dome, horizon band, sun, moon, clouds) and keyframes by
+  time of day giving sun heading/pitch/color, ambient, fog and per-object
+  luminosity/transparency (percent, 100 = invisible) and rotation. Draw the
+  sky in its own scene at the camera origin with depth testing off, sweep sun
+  and moon about the north axis by their angle windows, scroll cloud UVs by
+  texture velocity. Static sky textures must clamp to edge (their polygons end
+  exactly at texture edges, repeat wrapping draws seams); scrolling layers must
+  keep repeat wrapping or they smear into streaks.
+- Dereth time: a day is 7620 ticks with the epoch at tick 3600 of the day, so
+  timeOfDay = ((ticks + 3600) mod 7620) / 7620; the server's TimeSync packets
+  carry the ticks.
+- Region fog runs to 2400 units by day; cap it inside the loaded terrain
+  distance or the edge of the world shows as a void. Two streaming rings
+  (detail near, terrain-only far) give a kilometre of horizon cheaply.

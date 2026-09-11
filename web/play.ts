@@ -388,7 +388,7 @@ function frame(now: number) {
     if (ground !== null && ground !== undefined && eye.z < ground + 0.5) eye.z = ground + 0.5;
     camera.position.copy(eye);
     camera.lookAt(player.pos.clone().add(new THREE.Vector3(0, 0, 1.4)));
-    if (streamer && streamer.envcells.cells.size) streamer.envcells.applyVisibility(camera.position, streamer.outdoor);
+    if (streamer && streamer.envcells.cells.size) streamer.envcells.applyVisibility(camera.position, streamer.outdoor, streamer.playerBlock);
     const p = player.position();
     statusEl.textContent = `${client?.serverName ?? ""}  cell ${p.cell.toString(16).toUpperCase().padStart(8, "0")}  x ${p.x.toFixed(1)} y ${p.y.toFixed(1)} z ${p.z.toFixed(1)}  objects ${netWorld?.entities.size ?? 0}`;
   }

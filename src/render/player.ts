@@ -52,6 +52,7 @@ export class PlayerController {
   }
 
   setFromPosition(p: Position) {
+    this.streamer.setPlayerCell(p.cell);
     const lbx = p.cell >>> 24, lby = (p.cell >>> 16) & 0xff;
     this.pos.set(lbx * BLOCK_LENGTH + p.x, lby * BLOCK_LENGTH + p.y, p.z);
     this.yaw = 2 * Math.atan2(p.qz, p.qw);
@@ -64,7 +65,7 @@ export class PlayerController {
     const lbx = Math.floor(this.pos.x / BLOCK_LENGTH), lby = Math.floor(this.pos.y / BLOCK_LENGTH);
     const lx = this.pos.x - lbx * BLOCK_LENGTH, ly = this.pos.y - lby * BLOCK_LENGTH;
     let cell = ((lbx << 8) | lby) << 16;
-    const inCell = this.streamer.envcells.findCell(this.pos);
+    const inCell = this.streamer.envcells.findCell(this.pos, this.streamer.playerBlock);
     if (inCell) cell = inCell.id;
     else cell |= (Math.floor(lx / CELL_LENGTH) * 8 + Math.floor(ly / CELL_LENGTH) + 1);
     const half = this.yaw / 2;
@@ -102,7 +103,7 @@ export class PlayerController {
       // move if we found a floor within step range (or nothing is loaded yet and we're outdoors on terrain)
       if (floor !== null && floor - this.pos.z < 1.5) {
         this.pos.x = nx; this.pos.y = ny; this.pos.z = floor;
-      } else if (floor === null && this.streamer.envcells.findCell(this.pos) === null) {
+      } else if (floor === null && this.streamer.envcells.findCell(this.pos, this.streamer.playerBlock) === null) {
         const h = this.streamer.heightAt(nx, ny);
         if (h !== null) { this.pos.x = nx; this.pos.y = ny; this.pos.z = h; }
       }

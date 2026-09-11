@@ -253,17 +253,25 @@ export class EnvCellRenderer {
     return group;
   }
 
-  /** The loaded cell containing a world-space point, if any. */
-  findCell(p: THREE.Vector3): LoadedCell | null {
+  /** The loaded cell containing a world-space point, if any. Cells of `preferBlock` (landblock id) win ties. */
+  findCell(p: THREE.Vector3, preferBlock: number | null = null): LoadedCell | null {
     const local = new THREE.Vector3();
     let fallback: LoadedCell | null = null;
+    let other: LoadedCell | null = null;
     for (const c of this.cells.values()) {
       if (!c.box.containsPoint(p)) continue;
+      if (preferBlock !== null && (c.id & 0xffff0000) !== preferBlock) {
+        if (!other && c.cellStruct) {
+          local.copy(p).applyMatrix4(c.inverse);
+          if (pointInsideCell(c.cellStruct, local.x, local.y, local.z)) other = c;
+        }
+        continue;
+      }
       if (!c.cellStruct) { fallback ??= c; continue; }
       local.copy(p).applyMatrix4(c.inverse);
       if (pointInsideCell(c.cellStruct, local.x, local.y, local.z)) return c;
     }
-    return fallback;
+    return fallback ?? other;
   }
 
   /**
@@ -271,8 +279,8 @@ export class EnvCellRenderer {
    * list; the outdoors is shown only when one of those cells is seen from outside.
    * Returns the current cell (null = outdoors, everything visible).
    */
-  applyVisibility(cameraPos: THREE.Vector3, outdoor: THREE.Object3D): LoadedCell | null {
-    const cur = this.findCell(cameraPos);
+  applyVisibility(cameraPos: THREE.Vector3, outdoor: THREE.Object3D, preferBlock: number | null = null): LoadedCell | null {
+    const cur = this.findCell(cameraPos, preferBlock);
     if (!cur) {
       for (const c of this.cells.values()) c.group.visible = true;
       outdoor.visible = true;

@@ -21,6 +21,23 @@ export class WorldStreamer {
   scenery = true;
   interiors = true;
   onLog: ((s: string) => void) | null = null;
+  /** landblock (id & 0xffff0000) of the player's server-reported cell, or null */
+  playerBlock: number | null = null;
+  private dungeonCache = new Map<number, boolean>();
+  private mode: "outdoor" | "dungeon" | null = null;
+
+  /** Tell the streamer which landblock the server says the player is in. */
+  async setPlayerCell(cell: number) {
+    const block = (cell & 0xffff0000) >>> 0;
+    if (block === this.playerBlock) return;
+    this.playerBlock = block;
+    if (!this.dungeonCache.has(block)) this.dungeonCache.set(block, await this.objects.isDungeon((block | 0xffff) >>> 0));
+    this.centerX = -1; // force a reload decision
+  }
+
+  get inDungeon(): boolean {
+    return this.playerBlock !== null && this.dungeonCache.get(this.playerBlock) === true;
+  }
 
   constructor(private assets: Assets, region: RegionDesc) {
     this.terrain = new TerrainRenderer(assets, region);
@@ -35,14 +52,21 @@ export class WorldStreamer {
   /** Call whenever the player moves; loads/unloads as the center landblock changes. */
   update(worldX: number, worldY: number) {
     const cx = Math.floor(worldX / BLOCK_LENGTH), cy = Math.floor(worldY / BLOCK_LENGTH);
-    if (cx === this.centerX && cy === this.centerY) return;
+    const mode = this.inDungeon ? "dungeon" : "outdoor";
+    if (cx === this.centerX && cy === this.centerY && mode === this.mode) return;
     this.centerX = cx;
     this.centerY = cy;
+    this.mode = mode;
     const want = new Set<number>();
-    for (let x = cx - this.radius; x <= cx + this.radius; x++) {
-      for (let y = cy - this.radius; y <= cy + this.radius; y++) {
-        if (x < 0 || y < 0 || x > 0xfe || y > 0xfe) continue;
-        want.add(landblockId(x, y));
+    if (mode === "dungeon") {
+      // a dungeon is one landblock; neighbouring dungeon landblocks overlap it in space, so load only this one
+      want.add((this.playerBlock! | 0xffff) >>> 0);
+    } else {
+      for (let x = cx - this.radius; x <= cx + this.radius; x++) {
+        for (let y = cy - this.radius; y <= cy + this.radius; y++) {
+          if (x < 0 || y < 0 || x > 0xfe || y > 0xfe) continue;
+          want.add(landblockId(x, y));
+        }
       }
     }
     for (const [id, objs] of this.loaded) {
@@ -92,7 +116,7 @@ export class WorldStreamer {
    * among the current cell (and its visible cells) or the terrain block.
    */
   floorAt(x: number, y: number, z: number, up = 1.2, down = 6): number | null {
-    const cell = this.envcells.findCell(new THREE.Vector3(x, y, z));
+    const cell = this.envcells.findCell(new THREE.Vector3(x, y, z), this.playerBlock);
     let candidates: THREE.Object3D[];
     if (cell) {
       const block = cell.id & 0xffff0000;

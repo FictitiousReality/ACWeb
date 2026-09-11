@@ -176,6 +176,65 @@ export class WorldStreamer {
     return cell ? null : this.heightAt(x, y);
   }
 
+  /** extra collidable objects (closed doors, chests... from the server world) */
+  extraColliders: (() => THREE.Object3D[]) | null = null;
+
+  /**
+   * Nearest wall along a horizontal direction from a world position: rays at the given
+   * heights above `z` against nearby buildings, interiors, scenery and extra colliders.
+   * Returns the hit distance and its world-space horizontal normal.
+   */
+  wallAt(x: number, y: number, z: number, dirX: number, dirY: number, maxDist: number, heights = [0.7, 1.4]): { distance: number; nx: number; ny: number } | null {
+    const p = new THREE.Vector3(x, y, z);
+    const cell = this.envcells.findCell(p, this.playerBlock);
+    const candidates: THREE.Object3D[] = [];
+    if (cell) {
+      const block = cell.id & 0xffff0000;
+      candidates.push(cell.group);
+      for (const v of cell.envCell.visibleCells) {
+        const c = this.envcells.cells.get((block | v) >>> 0);
+        if (c) candidates.push(c.group);
+      }
+    } else {
+      const bx = Math.floor(x / BLOCK_LENGTH), by = Math.floor(y / BLOCK_LENGTH);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const entry = this.loaded.get(landblockId(bx + dx, by + dy));
+        if (!entry?.detail) continue;
+        for (const o of entry.objs) if (!o.name.startsWith("lb_") && !o.name.startsWith("cells_")) candidates.push(o);
+      }
+      for (const c of this.envcells.cells.values()) if (c.box.distanceToPoint(p) < maxDist + 1) candidates.push(c.group);
+    }
+    if (this.extraColliders) candidates.push(...this.extraColliders());
+    if (!candidates.length) return null;
+    const len = Math.hypot(dirX, dirY);
+    if (len < 1e-6) return null;
+    const dir = new THREE.Vector3(dirX / len, dirY / len, 0);
+    let best: { distance: number; nx: number; ny: number } | null = null;
+    const nm = new THREE.Matrix3(), m4 = new THREE.Matrix4(), n = new THREE.Vector3();
+    for (const h of heights) {
+      this.raycaster.set(new THREE.Vector3(x, y, z + h), dir);
+      this.raycaster.far = maxDist;
+      const hits = this.raycaster.intersectObjects(candidates, true);
+      for (const hit of hits) {
+        if (!hit.face || (best && hit.distance >= best.distance)) continue;
+        m4.copy(hit.object.matrixWorld);
+        if (hit.instanceId !== undefined && (hit.object as THREE.InstancedMesh).isInstancedMesh) {
+          const im = new THREE.Matrix4();
+          (hit.object as THREE.InstancedMesh).getMatrixAt(hit.instanceId, im);
+          m4.multiply(im);
+        }
+        n.copy(hit.face.normal).applyMatrix3(nm.getNormalMatrix(m4));
+        n.z = 0;
+        if (n.lengthSq() < 1e-6) continue; // floor or ceiling, not a wall
+        n.normalize();
+        if (n.dot(dir) > 0) n.negate(); // face us
+        best = { distance: hit.distance, nx: n.x, ny: n.y };
+        break; // hits are sorted by distance
+      }
+    }
+    return best;
+  }
+
   /** Terrain height at a world position, or null if that block isn't loaded. */
   heightAt(worldX: number, worldY: number): number | null {
     const geo = this.geometryAt(worldX, worldY);

@@ -26,6 +26,10 @@ export class PlayerController {
   private speeds = { run: 4, walk: 1.5, back: 1, side: 1.5, turn: 1.5 };
   private currentCommand = Cmd.Ready as number;
   contact = true;
+  /** walk through walls (/noclip) */
+  noclip = false;
+  /** collision radius against walls */
+  radius = 0.35;
 
   constructor(private client: GameClient, private streamer: WorldStreamer) {
     addEventListener("keydown", (e) => {
@@ -95,6 +99,36 @@ export class PlayerController {
     this.root.rotation.set(0, 0, this.yaw);
   }
 
+  /**
+   * Clip a velocity against walls: stop at the first wall in the way, then slide the
+   * remaining motion along it (velocity projected onto the wall plane).
+   */
+  private slideAlongWalls(vx: number, vy: number, dt: number): [number, number] {
+    const tryDir = (ax: number, ay: number): [number, number] => {
+      const speed = Math.hypot(ax, ay);
+      if (speed < 1e-6) return [0, 0];
+      const step = speed * dt;
+      const hit = this.streamer.wallAt(this.pos.x, this.pos.y, this.pos.z, ax, ay, step + this.radius);
+      if (!hit) return [ax, ay];
+      const allowed = Math.max(0, hit.distance - this.radius);
+      const k = Math.min(1, allowed / step);
+      // remaining motion slides along the wall
+      const rem = 1 - k;
+      const dot = ax * hit.nx + ay * hit.ny;
+      let sx = (ax - dot * hit.nx) * rem, sy = (ay - dot * hit.ny) * rem;
+      if (Math.hypot(sx, sy) > 1e-4) {
+        const h2 = this.streamer.wallAt(this.pos.x, this.pos.y, this.pos.z, sx, sy, Math.hypot(sx, sy) * dt + this.radius);
+        if (h2) {
+          const a2 = Math.max(0, h2.distance - this.radius), s2 = Math.hypot(sx, sy) * dt;
+          const k2 = Math.min(1, a2 / s2);
+          sx *= k2; sy *= k2;
+        }
+      } else { sx = 0; sy = 0; }
+      return [ax * k + sx, ay * k + sy];
+    };
+    return tryDir(vx, vy);
+  }
+
   update(dt: number) {
     const k = this.keys;
     const fwd = k.has("KeyW") || k.has("ArrowUp");
@@ -120,6 +154,7 @@ export class PlayerController {
     if (sl && !sr) { vx -= fy * this.speeds.side; vy += fx * this.speeds.side; if (cmd === Cmd.Ready) cmd = Cmd.SideStepLeft; }
     if (cmd === Cmd.Ready && left !== right) cmd = left ? Cmd.TurnLeft : Cmd.TurnRight;
 
+    if ((vx !== 0 || vy !== 0) && !this.noclip) [vx, vy] = this.slideAlongWalls(vx, vy, dt);
     if (vx !== 0 || vy !== 0) {
       const nx = this.pos.x + vx * dt, ny = this.pos.y + vy * dt;
       const floor = this.streamer.floorAt(nx, ny, this.pos.z);

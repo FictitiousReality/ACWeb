@@ -158,6 +158,18 @@ async function openDats() {
   scene.add(particles.group);
   netWorld = new NetWorld(assets, streamer.objects, particles);
   netWorld.groundAt = (x, y, z) => streamer!.floorAt(x, y, z);
+  // closed doors, chests, statues... block the player; creatures and ethereal objects don't
+  streamer.extraColliders = () => {
+    const out: THREE.Object3D[] = [];
+    for (const e of netWorld!.entities.values()) {
+      const o = e.obj;
+      if (o.physicsState & 0x4) continue; // Ethereal
+      if (o.objectFlags & 0x18) continue; // Player | Attackable (creatures)
+      if (o.mtable && !(o.objectFlags & 0x1000)) continue; // animated things other than doors
+      out.push(e.root);
+    }
+    return out;
+  };
   scene.add(netWorld.group);
   sky = new SkyRenderer(assets, region);
   await sky.build();
@@ -417,6 +429,7 @@ function sendChat(text: string) {
   else if (cmd === "lfg") channelSay(4, rest);
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
+  else if (cmd === "noclip" || cmd === "ghost") { if (player) { player.noclip = !player.noclip; log(`noclip ${player.noclip ? "on: walking through walls" : "off: walls are solid"}`, "c-system"); } }
   else if (cmd === "ls" || cmd === "lifestone") client.recall("lifestone");
   else if (cmd === "mp" || cmd === "marketplace") client.recall("marketplace");
   else if (cmd === "house") client.recall("house");

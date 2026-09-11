@@ -50,6 +50,9 @@ check the rules of any server before connecting to it.
   PlayEffect messages through each object's physics script table (buff and
   spell effects), and by each Setup's default script (portal vortices, which
   loop by calling themselves).
+- **Collision**: walls, building interiors, scenery, closed doors and static
+  server objects block the player (horizontal rays at knee and chest height,
+  sliding along the wall); `/noclip` toggles walking through walls.
 - **Client UI**: login and character creation, two-ring world streaming
   (full detail near the player, terrain-only to the horizon), third-person
   camera, click-to-target, inventory with the game's icons, tabbed chat with
@@ -58,8 +61,8 @@ check the rules of any server before connecting to it.
 ## Not yet
 
 Combat, spellcasting, vendors, allegiance, fellowship, housing, water
-surfaces, collision against walls (you walk through them; floors and terrain
-are followed), rain particles in the Rainy day groups, sound.
+surfaces, creature-to-creature collision, rain particles in the Rainy day
+groups, sound.
 
 ## Running
 
@@ -257,6 +260,13 @@ ACViewer and from testing against the real files and a real server.
   one; the Setup script runs regardless. Sprite size is the hardware GfxObj
   quad's own extents times the particle scale (ACViewer's extra 1.8 factor is
   a guess in its source).
+- Wall collision does not need the client's physics BSP: two horizontal rays
+  (0.7 and 1.4 above the feet, so steps and ramps pass underneath) against the
+  rendered meshes of nearby buildings, interior cells, scenery instances and
+  door/static entities, clipped to the player radius, with the remaining
+  motion projected onto the wall plane for sliding. About 0.2 ms per query.
+  Doors need no special casing: the door entity plays its On/Off motion, so
+  the rendered mesh swings out of the way.
 - Region fog runs to 2400 units by day; cap it inside the loaded terrain
   distance or the edge of the world shows as a void. Two streaming rings
   (detail near, terrain-only far) give a kilometre of horizon cheaply.

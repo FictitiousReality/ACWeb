@@ -287,8 +287,8 @@ export function parseWeenieDesc(r: BinReader): WeenieDesc {
   if (flags & 0x40000) r.u32();
   if (flags & 0x100000) r.u8();
   if (flags & 0x800000) r.u8();
-  if (flags & 0x8000000) r.u32();
-  if (flags & 0x1000000) r.u32();
+  if (flags & 0x8000000) r.u16(); // PScript (ushort)
+  if (flags & 0x1000000) r.f32(); // Workmanship
   if (flags & 0x200000) r.u16();
   if (flags & 0x400000) r.u16();
   if (flags & 0x2000000) r.u32();
@@ -300,7 +300,7 @@ export function parseWeenieDesc(r: BinReader): WeenieDesc {
   }
   if (flags & 0x20000000) r.u32();
   if (flags & 0x40) r.u32();
-  if (flags & 0x10000000) r.u32();
+  if (flags & 0x10000000) r.u16(); // HookType (ushort)
   if (flags & 0x40000000) readPackedDwordOfKnownType(r, 0x6000000);
   if (d.flags2 & 0x1) readPackedDwordOfKnownType(r, 0x6000000);
   if (flags & 0x80000000) r.u32();

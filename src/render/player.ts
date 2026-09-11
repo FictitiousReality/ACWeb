@@ -96,13 +96,19 @@ export class PlayerController {
     if (sl && !sr) { vx -= fy * this.speeds.side; vy += fx * this.speeds.side; if (cmd === Cmd.Ready) cmd = Cmd.SideStepLeft; }
     if (cmd === Cmd.Ready && left !== right) cmd = left ? Cmd.TurnLeft : Cmd.TurnRight;
 
-    const nx = this.pos.x + vx * dt, ny = this.pos.y + vy * dt;
-    const h = this.streamer.heightAt(nx, ny);
-    if (h !== null) {
-      this.pos.x = nx; this.pos.y = ny;
-      // inside a building cell, keep the current floor height rather than the terrain
-      const inCell = this.streamer.envcells.findCell(this.pos);
-      if (!inCell) this.pos.z = h;
+    if (vx !== 0 || vy !== 0) {
+      const nx = this.pos.x + vx * dt, ny = this.pos.y + vy * dt;
+      const floor = this.streamer.floorAt(nx, ny, this.pos.z);
+      // move if we found a floor within step range (or nothing is loaded yet and we're outdoors on terrain)
+      if (floor !== null && floor - this.pos.z < 1.5) {
+        this.pos.x = nx; this.pos.y = ny; this.pos.z = floor;
+      } else if (floor === null && this.streamer.envcells.findCell(this.pos) === null) {
+        const h = this.streamer.heightAt(nx, ny);
+        if (h !== null) { this.pos.x = nx; this.pos.y = ny; this.pos.z = h; }
+      }
+    } else {
+      const floor = this.streamer.floorAt(this.pos.x, this.pos.y, this.pos.z);
+      if (floor !== null && Math.abs(floor - this.pos.z) < 3) this.pos.z = floor;
     }
     this.root.position.copy(this.pos);
     this.root.rotation.set(0, 0, this.yaw);

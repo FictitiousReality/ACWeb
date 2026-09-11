@@ -235,7 +235,7 @@ async function onEnterWorld(guid: number) {
     streamer!.update(player.pos.x, player.pos.y);
   }
   if (me?.setup) {
-    const m = await AnimatedModel.create(assets!, streamer!.objects, me.setup);
+    const m = await AnimatedModel.create(assets!, streamer!.objects, me.setup, me.mtable);
     if (m) await player.setModel(m);
   }
   log(`entered world as ${me?.name ?? guid.toString(16)}`);

@@ -111,6 +111,16 @@ export class NetSession {
 
   /** Datagram received from the relay. */
   receive(portOffset: number, raw: Uint8Array) {
+    try {
+      this.receiveInner(portOffset, raw);
+    } catch (e) {
+      const h = raw.length >= 20 ? new DataView(raw.buffer, raw.byteOffset, 20) : null;
+      this.log(`packet error: ${(e as Error).message} (len=${raw.length}${h ? ` seq=${h.getUint32(0, true)} flags=0x${h.getUint32(4, true).toString(16)} size=${h.getUint16(16, true)}` : ""})`);
+      console.error(e);
+    }
+  }
+
+  private receiveInner(portOffset: number, raw: Uint8Array) {
     const p = parsePacket(raw);
     if (!p) { this.log(`unparseable packet (${raw.length} bytes) from port+${portOffset}`); return; }
     const h = p.header;
@@ -257,8 +267,8 @@ export class NetSession {
     try {
       this.events.onMessage?.(msg);
     } catch (e) {
-      this.log(`handler error for opcode ${msg.opcode.toString(16)}: ${(e as Error).message}`);
-      console.error(e);
+      this.log(`handler error for opcode ${msg.opcode.toString(16)}: ${(e as Error).message} (${msg.data.length} bytes, see console)`);
+      console.error(e, "message hex:", [...msg.data.subarray(0, 400)].map((b) => b.toString(16).padStart(2, "0")).join(""));
     }
   }
 

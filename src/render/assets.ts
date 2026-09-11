@@ -73,11 +73,11 @@ export class Assets {
     return p;
   }
 
-  async threeTexture(surfaceTextureId: number, clipMap = false): Promise<THREE.Texture | null> {
-    const key = `${surfaceTextureId}:${clipMap ? 1 : 0}`;
+  async threeTexture(surfaceTextureId: number, clipMap = false, paletteId = 0): Promise<THREE.Texture | null> {
+    const key = `${surfaceTextureId}:${clipMap ? 1 : 0}:${paletteId}`;
     let p = this.textures.get(key);
     if (!p) {
-      p = this.image(surfaceTextureId, clipMap).then((img) => {
+      p = this.image(surfaceTextureId, clipMap, paletteId).then((img) => {
         if (!img) return null;
         const tex = new THREE.DataTexture(img.data, img.width, img.height, THREE.RGBAFormat, THREE.UnsignedByteType);
         tex.colorSpace = THREE.SRGBColorSpace;
@@ -116,9 +116,12 @@ export class Assets {
     }
     const clip = (s.type & SurfaceFlags.Base1ClipMap) !== 0;
     if (s.type & (SurfaceFlags.Base1Image | SurfaceFlags.Base1ClipMap)) {
-      const tex = await this.threeTexture(s.origTextureId, clip);
+      const tex = await this.threeTexture(s.origTextureId, clip, s.origPaletteId);
       if (tex) mat.map = tex;
-      else mat.color.set(0xff00ff);
+      else {
+        mat.color.set(0xff00ff);
+        console.warn(`missing texture for surface ${hex(surfaceId)}: surfaceTexture ${hex(s.origTextureId)}`);
+      }
       if (clip) {
         mat.alphaTest = 0.5;
         mat.transparent = false;

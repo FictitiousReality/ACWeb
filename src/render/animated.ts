@@ -21,7 +21,7 @@ export class AnimatedModel {
 
   private constructor(private assets: Assets, readonly setup: Setup) {}
 
-  static async create(assets: Assets, objects: ObjectRenderer, setupId: number): Promise<AnimatedModel | null> {
+  static async create(assets: Assets, objects: ObjectRenderer, setupId: number, motionTableId = 0): Promise<AnimatedModel | null> {
     const setup = await assets.setup(setupId);
     if (!setup) return null;
     const m = new AnimatedModel(assets, setup);
@@ -37,8 +37,9 @@ export class AnimatedModel {
     const placement = setup.placementFrames.get(Placement.Resting) ?? setup.placementFrames.get(Placement.Default) ??
       setup.placementFrames.values().next().value ?? null;
     m.sequence.placement = placement;
-    if (setup.defaultMotionTable) {
-      m.motionTable = await assets.portal.get(setup.defaultMotionTable, parseMotionTable);
+    const mtableId = motionTableId || setup.defaultMotionTable;
+    if (mtableId) {
+      m.motionTable = await assets.portal.get(mtableId, parseMotionTable);
       if (m.motionTable) {
         m.stance = m.motionTable.defaultStyle;
         const idle = defaultMotion(m.motionTable, m.stance);

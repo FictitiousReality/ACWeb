@@ -85,6 +85,37 @@ export class WorldStreamer {
     return this.terrain.geometries.get(id);
   }
 
+  private raycaster = new THREE.Raycaster();
+
+  /**
+   * Floor height under a world position: nearest surface below (x, y, z + up)
+   * among the current cell (and its visible cells) or the terrain block.
+   */
+  floorAt(x: number, y: number, z: number, up = 1.2, down = 6): number | null {
+    const cell = this.envcells.findCell(new THREE.Vector3(x, y, z));
+    let candidates: THREE.Object3D[];
+    if (cell) {
+      const block = cell.id & 0xffff0000;
+      candidates = [cell.group];
+      for (const v of cell.envCell.visibleCells) {
+        const c = this.envcells.cells.get((block | v) >>> 0);
+        if (c) candidates.push(c.group);
+      }
+    } else {
+      const id = landblockId(Math.floor(x / BLOCK_LENGTH), Math.floor(y / BLOCK_LENGTH));
+      const mesh = this.loaded.get(id)?.[0];
+      candidates = mesh ? [mesh] : [];
+      // also allow standing on interior floors of buildings when detection missed
+      for (const c of this.envcells.cells.values()) if (c.box.containsPoint(new THREE.Vector3(x, y, z))) candidates.push(c.group);
+    }
+    if (!candidates.length) return this.heightAt(x, y);
+    this.raycaster.set(new THREE.Vector3(x, y, z + up), new THREE.Vector3(0, 0, -1));
+    this.raycaster.far = up + down;
+    const hits = this.raycaster.intersectObjects(candidates, true);
+    if (hits.length) return hits[0].point.z;
+    return cell ? null : this.heightAt(x, y);
+  }
+
   /** Terrain height at a world position, or null if that block isn't loaded. */
   heightAt(worldX: number, worldY: number): number | null {
     const geo = this.geometryAt(worldX, worldY);

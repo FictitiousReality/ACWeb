@@ -7,6 +7,8 @@ import { PlayerController } from "../src/render/player.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject } from "../src/net/client.ts";
+import { CHARGEN_ID, SKILLTABLE_ID, parseCharGen, parseSkillTable } from "../src/dat/mod.ts";
+import type { CharGen, SkillBase } from "../src/dat/mod.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const statusEl = $("status");
@@ -62,6 +64,8 @@ let netWorld: NetWorld | null = null;
 let player: PlayerController | null = null;
 let client: GameClient | null = null;
 let iterations = { portal: 2072, cell: 982, language: 994 };
+let charGen: CharGen | null = null;
+let skillTable: Map<number, SkillBase> | null = null;
 
 async function openDats() {
   log("opening dats over HTTP...");
@@ -80,12 +84,98 @@ async function openDats() {
   netWorld = new NetWorld(assets, streamer.objects);
   scene.add(netWorld.group);
   log(`dats ready (portal ${iterations.portal}, cell ${iterations.cell}, language ${iterations.language})`);
+  charGen = await portal.get(CHARGEN_ID, parseCharGen);
+  skillTable = await portal.get(SKILLTABLE_ID, parseSkillTable);
+  setupCreateForm();
 }
+
+// ---------- character creation ----------
+function setupCreateForm() {
+  if (!charGen) return;
+  const her = $<HTMLSelectElement>("cHeritage");
+  her.innerHTML = "";
+  for (const [id, h] of charGen.heritageGroups) {
+    if (id >= 12) continue; // olthoi play is normally disabled
+    const o = document.createElement("option");
+    o.value = String(id);
+    o.textContent = h.name;
+    her.appendChild(o);
+  }
+  her.onchange = fillTemplates;
+  $<HTMLSelectElement>("cTemplate").onchange = fillTemplateInfo;
+  fillTemplates();
+}
+function fillTemplates() {
+  if (!charGen) return;
+  const h = charGen.heritageGroups.get(Number($<HTMLSelectElement>("cHeritage").value))!;
+  const sel = $<HTMLSelectElement>("cTemplate");
+  sel.innerHTML = "";
+  h.templates.forEach((t, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = t.name;
+    sel.appendChild(o);
+  });
+  if (h.templates.length > 1) sel.value = "1";
+  const start = $<HTMLSelectElement>("cStart");
+  start.innerHTML = "";
+  for (const i of [...h.primaryStartAreas, ...h.secondaryStartAreas]) {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = charGen.starterAreas[i]?.name ?? String(i);
+    start.appendChild(o);
+  }
+  fillTemplateInfo();
+}
+function templateCost(heritageId: number, templateIdx: number) {
+  const h = charGen!.heritageGroups.get(heritageId)!;
+  const t = h.templates[templateIdx];
+  const cost = (id: number, primary: boolean) => {
+    const cg = h.skills.find((x) => x.skill === id);
+    const base = skillTable!.get(id);
+    if (primary) return cg ? cg.primaryCost : (base?.specializedCost ?? 0);
+    return cg ? cg.normalCost : (base?.trainedCost ?? 0);
+  };
+  const skillCost = t.normalSkills.reduce((n, id) => n + cost(id, false), 0) + t.primarySkills.reduce((n, id) => n + cost(id, true), 0);
+  const attrSum = t.strength + t.endurance + t.coordination + t.quickness + t.focus + t.self;
+  return { t, h, skillCost, attrSum };
+}
+function fillTemplateInfo() {
+  if (!charGen || !skillTable) return;
+  const { t, h, skillCost, attrSum } = templateCost(Number($<HTMLSelectElement>("cHeritage").value), Number($<HTMLSelectElement>("cTemplate").value));
+  const names = (ids: number[]) => ids.map((id) => skillTable!.get(id)?.name ?? `#${id}`).join(", ");
+  $("cTemplateInfo").textContent =
+    `Str ${t.strength}  End ${t.endurance}  Coord ${t.coordination}  Quick ${t.quickness}  Focus ${t.focus}  Self ${t.self}  (${attrSum}/${h.attributeCredits})\n` +
+    `Specialized: ${names(t.primarySkills) || "-"}\nTrained: ${names(t.normalSkills) || "-"}\nSkill credits used ${skillCost}/${h.skillCredits}`;
+}
+$("cCreate").addEventListener("click", () => {
+  if (!client || !charGen || !skillTable) return;
+  const heritage = Number($<HTMLSelectElement>("cHeritage").value);
+  const templateOption = Number($<HTMLSelectElement>("cTemplate").value);
+  const { t, h, skillCost, attrSum } = templateCost(heritage, templateOption);
+  const name = $<HTMLInputElement>("cName").value.trim();
+  if (!name) { loginStatus.textContent = "enter a character name"; return; }
+  if (attrSum > h.attributeCredits || skillCost > h.skillCredits) { loginStatus.textContent = "template exceeds credits"; return; }
+  const skills = new Array<number>(55).fill(0);
+  for (const id of skillTable.keys()) if (id < 55) skills[id] = 1;
+  for (const id of t.normalSkills) skills[id] = 2;
+  for (const id of t.primarySkills) skills[id] = 3;
+  client.createCharacter({
+    heritage, gender: Number($<HTMLSelectElement>("cGender").value), templateOption,
+    attributes: { strength: t.strength, endurance: t.endurance, coordination: t.coordination, quickness: t.quickness, focus: t.focus, self: t.self },
+    skills, name, startArea: Number($<HTMLSelectElement>("cStart").value),
+  });
+  loginStatus.textContent = `creating ${name}...`;
+});
+
+// load the dats as soon as the page opens; logging in is a separate, explicit step
+const datsReady = openDats().catch((e) => { loginStatus.textContent = `dat load failed: ${(e as Error).message}`; console.error(e); });
 
 $("loginForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   try {
-    if (!assets) await openDats();
+    await datsReady;
+    if (!assets) throw new Error("dats not loaded");
     const relay = $<HTMLInputElement>("relay").value.trim();
     const host = $<HTMLInputElement>("host").value.trim();
     const port = Number($<HTMLInputElement>("port").value) || 9000;
@@ -99,6 +189,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onState: (s, d) => { statusEl.textContent = `${s}${d ? " " + d : ""}`; if (s === "error" || s === "closed") loginStatus.textContent = `${s}: ${d ?? ""}`; },
       onChat: (text, kind, sender) => log(sender ? `${sender}: ${text}` : text, kind.startsWith("system") ? "" : ""),
       onCharacterList: showCharacters,
+      onCharacterCreated: (result, _guid, name) => { loginStatus.textContent = result === "Ok" ? `created ${name}` : `create failed: ${result}`; },
       onEnterWorld: onEnterWorld,
       onObjectCreate: (o) => onObject(o),
       onObjectUpdate: (o) => onObject(o),
@@ -118,8 +209,10 @@ $("loginForm").addEventListener("submit", async (ev) => {
 function showCharacters(list: CharacterList) {
   const box = $("chars");
   box.innerHTML = "";
+  $("create").style.display = "block";
   if (!list.characters.length) {
-    box.textContent = "This account has no characters. Create one with the official client first.";
+    box.textContent = "This account has no characters yet — create one below.";
+    ($("create") as HTMLDetailsElement).open = true;
     return;
   }
   for (const c of list.characters) {

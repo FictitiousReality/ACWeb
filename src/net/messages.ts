@@ -470,3 +470,64 @@ export function buildJump(extent: number, velocity: [number, number, number], se
   w.u32(0).u32(0);
   return w.toBytes();
 }
+
+// ---------- character creation ----------
+
+export interface CharacterCreateInfo {
+  heritage: number;
+  gender: number; // 1 male, 2 female
+  templateOption: number;
+  attributes: { strength: number; endurance: number; coordination: number; quickness: number; focus: number; self: number };
+  /** 55 entries indexed by skill id: 0 inactive, 1 untrained, 2 trained, 3 specialized */
+  skills: number[];
+  name: string;
+  startArea: number;
+  appearance?: Partial<Appearance>;
+}
+export interface Appearance {
+  eyes: number; nose: number; mouth: number; hairColor: number; eyeColor: number; hairStyle: number;
+  headgearStyle: number; headgearColor: number; shirtStyle: number; shirtColor: number; pantsStyle: number; pantsColor: number;
+  footwearStyle: number; footwearColor: number;
+  skinHue: number; hairHue: number; headgearHue: number; shirtHue: number; pantsHue: number; footwearHue: number;
+}
+export const defaultAppearance: Appearance = {
+  eyes: 0, nose: 0, mouth: 0, hairColor: 0, eyeColor: 0, hairStyle: 0,
+  headgearStyle: 0xffffffff, headgearColor: 0, shirtStyle: 0, shirtColor: 0, pantsStyle: 0, pantsColor: 0, footwearStyle: 0, footwearColor: 0,
+  skinHue: 0, hairHue: 0, headgearHue: 0, shirtHue: 0, pantsHue: 0, footwearHue: 0,
+};
+
+export function buildCharacterCreate(account: string, info: CharacterCreateInfo): Uint8Array {
+  const w = message(0xf656);
+  w.string16L(account);
+  w.u32(1);
+  w.u32(info.heritage).u32(info.gender);
+  const a = { ...defaultAppearance, ...(info.appearance ?? {}) };
+  w.u32(a.eyes).u32(a.nose).u32(a.mouth).u32(a.hairColor).u32(a.eyeColor).u32(a.hairStyle);
+  w.u32(a.headgearStyle).u32(a.headgearColor).u32(a.shirtStyle).u32(a.shirtColor).u32(a.pantsStyle).u32(a.pantsColor);
+  w.u32(a.footwearStyle).u32(a.footwearColor);
+  w.f64(a.skinHue).f64(a.hairHue).f64(a.headgearHue).f64(a.shirtHue).f64(a.pantsHue).f64(a.footwearHue);
+  w.i32(info.templateOption);
+  const at = info.attributes;
+  w.u32(at.strength).u32(at.endurance).u32(at.coordination).u32(at.quickness).u32(at.focus).u32(at.self);
+  w.u32(0); // character slot
+  w.u32(1); // class id
+  w.u32(info.skills.length);
+  for (const s of info.skills) w.u32(s);
+  w.string16L(info.name);
+  w.u32(info.startArea);
+  w.u32(0); // admin
+  w.u32(0); // sentinel
+  return w.toBytes();
+}
+
+export const CharacterCreateResult = ["Undef", "Ok", "Pending", "NameInUse", "NameBanned", "Corrupt", "DatabaseDown", "AdminPrivilegeDenied"];
+
+export function parseCharacterCreateResponse(r: BinReader): { result: number; guid?: number; name?: string } {
+  const result = r.u32();
+  if (result === 1) {
+    const guid = r.u32();
+    const name = readString16L(r);
+    return { result, guid, name };
+  }
+  return { result };
+}

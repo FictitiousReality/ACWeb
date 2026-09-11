@@ -12,3 +12,4 @@ export * from "./records/region.ts";
 export * from "./records/scene.ts";
 export * from "./records/motion.ts";
 export * from "./motionenums.ts";
+export * from "./records/chargen.ts";

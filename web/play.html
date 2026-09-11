@@ -34,6 +34,18 @@
       <button type="submit" id="connect">Connect</button>
       <div id="loginStatus"></div>
       <div id="chars"></div>
+      <details id="create" style="display:none">
+        <summary>Create a character</summary>
+        <div style="display:grid;gap:6px;margin-top:6px">
+          <label>name <input id="cName" maxlength="32"></label>
+          <label>heritage <select id="cHeritage"></select></label>
+          <label>gender <select id="cGender"><option value="1">Male</option><option value="2">Female</option></select></label>
+          <label>template <select id="cTemplate"></select></label>
+          <div id="cTemplateInfo" style="font-size:11px;opacity:.8;white-space:pre-wrap"></div>
+          <label>start town <select id="cStart"></select></label>
+          <button type="button" id="cCreate">Create</button>
+        </div>
+      </details>
     </form>
   </div>
   <div id="status"></div>

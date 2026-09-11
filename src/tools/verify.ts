@@ -8,7 +8,7 @@
 import {
   BinReader, DatDatabase, DenoFileSource, hex, parseAnimation, parseEnvCell, parseEnvironment, parseGfxObj,
   parseLandblock, parseLandblockInfo, parsePalette, parseRegion, parseSetup, parseSurface, parseSurfaceTexture,
-  parseTexture, parseScene, parseMotionTable, PortalKind, REGION_ID,
+  parseTexture, parseScene, parseMotionTable, parseCharGen, parseSkillTable, CHARGEN_ID, SKILLTABLE_ID, PortalKind, REGION_ID,
 } from "../dat/mod.ts";
 
 const dir = Deno.args[0] ?? `${Deno.env.get("HOME")}/Downloads/ac-updates`;
@@ -62,6 +62,8 @@ await check(portal, "Animation", byKind(PortalKind.Animation), parseAnimation);
 await check(portal, "Environment", byKind(PortalKind.Environment), parseEnvironment);
 await check(portal, "Scene", byKind(PortalKind.Scene), parseScene);
 await check(portal, "MotionTable", byKind(PortalKind.MotionTable), parseMotionTable);
+await check(portal, "CharGen", [CHARGEN_ID], parseCharGen);
+await check(portal, "SkillTable", [SKILLTABLE_ID], parseSkillTable);
 
 const cellIds = [...cell.files.keys()];
 await check(cell, "Landblock", cellIds.filter((id) => (id & 0xffff) === 0xffff), parseLandblock);

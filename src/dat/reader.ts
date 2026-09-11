@@ -102,6 +102,17 @@ export class BinReader {
     return decode1252(this.bytes(len));
   }
 
+  /** .NET BinaryReader.ReadString: 7-bit encoded length + UTF-8 bytes. */
+  csString(): string {
+    let len = 0, shift = 0, b: number;
+    do {
+      b = this.u8();
+      len |= (b & 0x7f) << shift;
+      shift += 7;
+    } while (b & 0x80);
+    return new TextDecoder().decode(this.bytes(len));
+  }
+
   /** u16 length + nibble-swapped bytes. */
   obfuscatedString(): string {
     const len = this.u16();

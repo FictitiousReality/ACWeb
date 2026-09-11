@@ -7,9 +7,9 @@ import { readString16L } from "./binary.ts";
 import { NetSession, RelayTransport, type GameMessage, type SessionState } from "./session.ts";
 import {
   buildAutonomousPosition, buildCharacterEnterWorld, buildCharacterEnterWorldRequest, buildDDDResponse, buildLoginComplete,
-  buildMoveToState, buildTalk, Group, Opcode, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
+  buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
-  type ObjectSequences, type Position, type PositionUpdate, type RawMotion,
+  type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
 } from "./messages.ts";
 
 export interface WorldObject {
@@ -32,6 +32,7 @@ export interface ClientEvents {
   onLog?(line: string): void;
   onChat?(text: string, kind: string, sender?: string): void;
   onCharacterList?(list: CharacterList): void;
+  onCharacterCreated?(result: string, guid?: number, name?: string): void;
   onEnterWorld?(playerGuid: number): void;
   onObjectCreate?(obj: WorldObject): void;
   onObjectUpdate?(obj: WorldObject): void;
@@ -97,6 +98,10 @@ export class GameClient {
   }
   private pendingCharacter = 0;
 
+  createCharacter(info: CharacterCreateInfo) {
+    this.send(buildCharacterCreate(this.account, info), Group.UI);
+  }
+
   say(text: string) {
     this.send(buildTalk(text), Group.Weenie);
   }
@@ -141,6 +146,17 @@ export class GameClient {
       case Opcode.DDD_EndDDD: {
         this.log("dats accepted");
         this.events.onState?.("ready");
+        break;
+      }
+      case Opcode.CharacterCreateResponse: {
+        const res = parseCharacterCreateResponse(r);
+        const name = CharacterCreateResult[res.result] ?? `code ${res.result}`;
+        this.log(`character create: ${name}${res.name ? ` (${res.name})` : ""}`);
+        if (res.result === 1 && res.guid !== undefined && this.characters) {
+          this.characters.characters.unshift({ id: res.guid, name: res.name ?? "", deleteTime: 0 });
+          this.events.onCharacterList?.(this.characters);
+        }
+        this.events.onCharacterCreated?.(name, res.guid, res.name);
         break;
       }
       case Opcode.CharacterEnterWorldServerReady: {

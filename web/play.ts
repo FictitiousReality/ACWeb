@@ -314,7 +314,15 @@ $("loginForm").addEventListener("submit", async (ev) => {
         }
         netWorld?.onMotion(o, m);
       },
-      onPlayerMotion: (m) => { if (player && (m.type === 8 || m.type === 9) && m.moveTo) player.faceHeading(m.moveTo.heading); },
+      onPlayerMotion: (m) => {
+        if (!player) return;
+        if ((m.type === 8 || m.type === 9) && m.moveTo) player.faceHeading(m.moveTo.heading);
+        // the server echoes our movement with RunForward at our run rate: adopt it so we move as fast as it allows
+        if (m.state && m.state.forward && commandFromKey(m.state.forward) === 0x44000007 && m.state.forwardSpeed > 0 && m.state.forwardSpeed !== player.runRate) {
+          player.runRate = m.state.forwardSpeed;
+          log(`run rate ${player.runRate.toFixed(2)}`, "debug");
+        }
+      },
       onObjectDelete: (g) => netWorld?.remove(g),
       onPlayEffect: (o, sc, mod) => { if (o.guid === client!.playerGuid) player?.model?.playScript(sc, mod); else netWorld?.onPlayEffect(o, sc, mod); },
       onPlayScriptId: (o, id) => { if (o.guid === client!.playerGuid) player?.model?.playScriptId(id); else netWorld?.onPlayScriptId(o, id); },
@@ -535,6 +543,7 @@ $("invGive").addEventListener("click", () => {
 
 // ---------- frame loop ----------
 let last = performance.now();
+let fpsAvg = 60;
 function frame(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
@@ -550,7 +559,8 @@ function frame(now: number) {
     camera.lookAt(player.pos.clone().add(new THREE.Vector3(0, 0, 1.4)));
     if (streamer && streamer.envcells.cells.size) streamer.envcells.applyVisibility(camera.position, streamer.outdoor, streamer.playerBlock);
     const p = player.position();
-    statusEl.textContent = `${client?.serverName ?? ""}  cell ${p.cell.toString(16).toUpperCase().padStart(8, "0")}  x ${p.x.toFixed(1)} y ${p.y.toFixed(1)} z ${p.z.toFixed(1)}  objects ${netWorld?.entities.size ?? 0}`;
+    fpsAvg += (1 / Math.max(1e-3, dt) - fpsAvg) * 0.05;
+    statusEl.textContent = `${client?.serverName ?? ""}  cell ${p.cell.toString(16).toUpperCase().padStart(8, "0")}  x ${p.x.toFixed(1)} y ${p.y.toFixed(1)} z ${p.z.toFixed(1)}  objects ${netWorld?.entities.size ?? 0}  ${fpsAvg.toFixed(0)} fps`;
   }
   netWorld?.update(dt);
   particles?.update(dt);

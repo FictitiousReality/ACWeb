@@ -189,6 +189,20 @@ ACViewer and from testing against the real files and a real server.
   moves the other way); turn rate comes from the cycle's Omega field (-1.5
   rad/s for TurnRight); server speeds multiply both the velocity and the
   animation framerate.
+- Retail clients only include the stance in a movement update when it changes,
+  so most of their motion messages arrive with stance 0. Looking up cycles
+  under stance 0 finds nothing: no run animation and no velocity. Keep the
+  model's current stance when the message carries none. (Our own client always
+  sends the stance, which is why players from our client animated and retail
+  players did not.)
+- The server echoes your own movement back with RunForward at your run rate
+  (1.59 for a new character, 2.3 to 2.95 for veterans, x4 m/s). Adopt it for
+  your own speed, and interpret your keys the way the server does: backwards
+  is the walk cycle reversed at 0.65 x rate, sidestep is 1.248 x rate (max 3)
+  on the sidestep cycle, turning is 1.5x faster while running.
+- Position corrections for other players are spread over most of the interval
+  to the next expected update (about a second on retail), so a heading change
+  arrives as a drift instead of a hop.
 - A creature usually comes into view already moving, so its CreateObject and
   its first motion message arrive together. Rebuilding the animation sequence
   across awaits let the two interleave: the sequence ended up holding the idle

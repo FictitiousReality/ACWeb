@@ -23,8 +23,11 @@ export class PlayerController {
   private keys = new Set<string>();
   private lastMotion = "";
   private lastReport = 0;
-  private speeds = { run: 4, walk: 1.5, back: 1, side: 1.5, turn: 1.5 };
-  private currentCommand = Cmd.Ready as number;
+  /** cycle speeds at rate 1 (metres or radians per second), from the motion table */
+  private speeds = { run: 4, walk: 2.6, side: 1.2, turn: 1.5 };
+  /** the server's run rate for this character (from the echo of our own motion); walking is always 1 */
+  runRate = 1;
+  private currentCommand = -1;
   contact = true;
   /** walk through walls (/noclip) */
   noclip = false;
@@ -53,6 +56,8 @@ export class PlayerController {
     if (run[1] > 0) this.speeds.run = run[1];
     if (walk[1] > 0) this.speeds.walk = walk[1];
     if (Math.abs(side[0]) > 0) this.speeds.side = Math.abs(side[0]);
+    const omega = m.cycleOmega(Cmd.TurnRight);
+    if (omega) this.speeds.turn = Math.abs(omega);
   }
 
   setFromPosition(p: Position) {
@@ -137,22 +142,31 @@ export class PlayerController {
     const right = k.has("KeyD") || k.has("ArrowRight");
     const sl = k.has("KeyQ"), sr = k.has("KeyE");
 
-    if (left && !right) this.yaw += this.speeds.turn * dt;
-    if (right && !left) this.yaw -= this.speeds.turn * dt;
+    // the same interpretation the server applies to our raw keys (ACE MovementData):
+    // run = RunForward at the run rate, backwards = WalkForward at -0.65 x rate,
+    // sidestep = SideStepRight at rate * 3.12 / 1.25 * 0.5 (max 3), turn = 1.5x faster while running
+    const rate = this.run ? this.runRate : 1;
+    const turnSpeed = this.run ? 1.5 : 1;
+    if (left && !right) this.yaw += this.speeds.turn * turnSpeed * dt;
+    if (right && !left) this.yaw -= this.speeds.turn * turnSpeed * dt;
     const fx = -Math.sin(this.yaw), fy = Math.cos(this.yaw);
     let vx = 0, vy = 0;
-    let cmd: number = Cmd.Ready;
+    let cmd: number = Cmd.Ready, animCmd: number = Cmd.Ready, animSpeed = 1;
     if (fwd && !back) {
-      const s = this.run ? this.speeds.run : this.speeds.walk;
+      const s = this.run ? this.speeds.run * this.runRate : this.speeds.walk;
       vx += fx * s; vy += fy * s;
       cmd = this.run ? Cmd.RunForward : Cmd.WalkForward;
+      animCmd = cmd; animSpeed = this.run ? this.runRate : 1;
     } else if (back && !fwd) {
-      vx -= fx * this.speeds.back; vy -= fy * this.speeds.back;
+      const s = this.speeds.walk * 0.65 * rate;
+      vx -= fx * s; vy -= fy * s;
       cmd = Cmd.WalkBackwards;
+      animCmd = Cmd.WalkForward; animSpeed = -0.65 * rate;
     }
-    if (sr && !sl) { vx += fy * this.speeds.side; vy -= fx * this.speeds.side; if (cmd === Cmd.Ready) cmd = Cmd.SideStepRight; }
-    if (sl && !sr) { vx -= fy * this.speeds.side; vy += fx * this.speeds.side; if (cmd === Cmd.Ready) cmd = Cmd.SideStepLeft; }
-    if (cmd === Cmd.Ready && left !== right) cmd = left ? Cmd.TurnLeft : Cmd.TurnRight;
+    const sideRate = Math.min(3, rate * 3.12 / 1.25 * 0.5);
+    if (sr && !sl) { vx += fy * this.speeds.side * sideRate; vy -= fx * this.speeds.side * sideRate; if (cmd === Cmd.Ready) { cmd = Cmd.SideStepRight; animCmd = Cmd.SideStepRight; animSpeed = sideRate; } }
+    if (sl && !sr) { vx -= fy * this.speeds.side * sideRate; vy += fx * this.speeds.side * sideRate; if (cmd === Cmd.Ready) { cmd = Cmd.SideStepLeft; animCmd = Cmd.SideStepRight; animSpeed = -sideRate; } }
+    if (cmd === Cmd.Ready && left !== right) { cmd = left ? Cmd.TurnLeft : Cmd.TurnRight; animCmd = Cmd.TurnRight; animSpeed = left ? -turnSpeed : turnSpeed; }
 
     if ((vx !== 0 || vy !== 0) && !this.noclip) [vx, vy] = this.slideAlongWalls(vx, vy, dt);
     if (vx !== 0 || vy !== 0) {
@@ -173,9 +187,10 @@ export class PlayerController {
     this.root.rotation.set(0, 0, this.yaw);
 
     if (this.model) {
-      if (cmd !== this.currentCommand) {
-        this.currentCommand = cmd;
-        this.model.playMotion(cmd);
+      const animKey = animCmd * 8 + animSpeed;
+      if (animKey !== this.currentCommand) {
+        this.currentCommand = animKey;
+        this.model.playMotion(animCmd, this.model.stance, animSpeed);
       }
       this.model.update(dt);
     }

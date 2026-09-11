@@ -40,6 +40,9 @@ export interface Entity {
   /** rendered = estimate + offset; the offset absorbs corrections and decays to zero */
   offset: THREE.Vector3;
   yawOffset: number;
+  /** how fast the offset decays (1/s): tuned so a correction finishes just before the next update */
+  corrRate: number;
+  lastPosTime: number;
 }
 
 /** yaw about +Z from a position quaternion (AC creatures only rotate about Z) */
@@ -131,7 +134,7 @@ export class NetWorld {
     const e: Entity = {
       obj, root, model: null, simPos: new THREE.Vector3(), simYaw: 0, simQuat: new THREE.Quaternion(),
       localVel: new THREE.Vector3(), omega: 0, moveTo: null, lastUpdate: this.now, yaw: 0, motionSerial: 0,
-      offset: new THREE.Vector3(), yawOffset: 0,
+      offset: new THREE.Vector3(), yawOffset: 0, corrRate: 4, lastPosTime: -1,
     };
     this.entities.set(obj.guid, e);
     this.group.add(root);
@@ -206,10 +209,16 @@ export class NetWorld {
       e.yaw = e.simYaw;
       if (e.model) e.root.rotation.set(0, 0, e.yaw); else e.root.quaternion.copy(e.simQuat);
     } else {
-      // keep the rendered pose where it was and let the difference decay
+      // keep the rendered pose where it was and let the difference decay, spread over
+      // most of the interval between this update and the next (retail sends about 1/s)
       e.offset.add(prev.sub(e.simPos));
       e.yawOffset = wrapAngle(e.yawOffset + prevYaw - e.simYaw);
+      if (e.lastPosTime >= 0) {
+        const gap = Math.min(1.5, Math.max(0.15, this.now - e.lastPosTime));
+        e.corrRate = 3 / gap; // exp(-3) ~ 5% left by the next update
+      }
     }
+    e.lastPosTime = this.now;
   }
 
   onPosition(obj: WorldObject, u: PositionUpdate) {
@@ -226,12 +235,13 @@ export class NetWorld {
       if (md.moveTo && md.moveTo.cell) {
         const target = positionToWorld({ cell: md.moveTo.cell, x: md.moveTo.x, y: md.moveTo.y, z: md.moveTo.z, qw: 1, qx: 0, qy: 0, qz: 0 });
         const runRate = md.moveTo.runRate > 0 ? md.moveTo.runRate : 1;
-        const run = m ? await m.cycleVelocity(CMD_RUN, md.stance) : [0, 4, 0];
+        const mvStance = (md.stance & 0xffff) ? md.stance : (m?.stance || md.stance);
+        const run = m ? await m.cycleVelocity(CMD_RUN, mvStance) : [0, 4, 0];
         if (serial !== e.motionSerial) return;
         const speed = (run[1] || 4) * runRate;
         e.moveTo = { target, speed };
         e.localVel.set(0, 0, 0); e.omega = 0;
-        if (m) await m.playMotion(CMD_RUN, md.stance, runRate);
+        if (m) await m.playMotion(CMD_RUN, mvStance, runRate);
       }
       return;
     }
@@ -242,7 +252,10 @@ export class NetWorld {
     }
     if (!md.state) return;
     const st = md.state;
-    const stance = st.stance || md.stance;
+    // retail clients only send the stance when it changes, so it often arrives as 0:
+    // keep the model's current stance in that case (else nothing would animate or move)
+    const rawStance = st.stance || md.stance;
+    const stance = (rawStance & 0xffff) ? rawStance : (m?.stance || rawStance);
     e.moveTo = null;
     const forward = st.forward ? commandFromKey(st.forward) : CMD_READY;
     const sidestep = st.sidestep ? commandFromKey(st.sidestep) : 0;
@@ -301,7 +314,7 @@ export class NetWorld {
           e.simPos.addScaledVector(d.normalize(), step);
         }
       } else if (e.localVel.x !== 0 || e.localVel.y !== 0 || e.omega !== 0) {
-        if (this.now - e.lastUpdate > 4) {
+        if (this.now - e.lastUpdate > 5) {
           // nothing from the server for a while: assume it stopped
           e.localVel.set(0, 0, 0); e.omega = 0;
           e.model?.playMotion(CMD_READY, e.model.stance);
@@ -319,7 +332,7 @@ export class NetWorld {
         if (g !== null && Math.abs(g - e.simPos.z) < 2) e.simPos.z = g;
       }
       // rendered pose = estimate + decaying correction offset (no steady-state lag while moving)
-      const decay = Math.exp(-dt * 4);
+      const decay = Math.exp(-dt * e.corrRate);
       e.offset.multiplyScalar(decay);
       e.yawOffset *= decay;
       if (e.offset.lengthSq() < 1e-6) e.offset.set(0, 0, 0);

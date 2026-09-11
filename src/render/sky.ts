@@ -44,6 +44,9 @@ export class SkyRenderer {
   timeOfDay = 0.5;
   private texTime = 0;
 
+  /** the region's clock definition (day length in seconds, clock reading at tick zero, named times of day) */
+  get gameTime() { return this.region.gameTime; }
+
   constructor(private assets: Assets, private region: RegionDesc, dayGroupIndex = 0) {
     this.camera.up.set(0, 0, 1);
     this.group = region.sky!.dayGroups[dayGroupIndex] ?? region.sky!.dayGroups[0];
@@ -178,7 +181,13 @@ export class SkyRenderer {
 }
 
 /** Dereth time of day (0..1) from a server time in seconds, given the region's day length. */
-export function timeOfDayFromServerTime(serverSeconds: number, dayLengthSeconds: number): number {
-  const t = serverSeconds % dayLengthSeconds;
+/**
+ * Fraction of the Dereth day for a server tick count. The region's GameTime says a day is
+ * `dayLength` seconds (7620 = 2h07m real time) and that the year's clock reads `zeroTimeOfYear`
+ * (3600) at tick zero, so the day fraction is ((ticks + zeroTimeOfYear) mod dayLength) / dayLength.
+ * Without the zero offset the sky runs 47% of a day out of phase with the game.
+ */
+export function timeOfDayFromServerTime(serverSeconds: number, dayLengthSeconds: number, zeroTimeOfYear = 0): number {
+  const t = (serverSeconds + zeroTimeOfYear) % dayLengthSeconds;
   return ((t / dayLengthSeconds) % 1 + 1) % 1;
 }

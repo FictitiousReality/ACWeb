@@ -449,6 +449,16 @@ function sendChat(text: string) {
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
   else if (cmd === "blink") blink();
+  else if (cmd === "time") {
+    if (sky) {
+      const gt = sky.gameTime, tod = sky.timeOfDay;
+      const names = gt.timesOfDay;
+      let cur = names[0];
+      for (const n of names) if (n.start <= tod) cur = n;
+      const h = Math.floor(tod * 24), m = Math.floor((tod * 24 - h) * 60);
+      log(`Dereth time ${h}:${m.toString().padStart(2, "0")} (${cur?.name ?? "?"}, day fraction ${tod.toFixed(3)}; a day is ${gt.dayLength} s real time)`, "c-system");
+    }
+  }
   else if (cmd === "fly") {
     if (player) {
       if (player.fly) { player.land(); log("fly off: back on the ground", "c-system"); }
@@ -586,7 +596,7 @@ function frame(now: number) {
   particles?.update(dt);
   camera.updateMatrixWorld();
   const s = client?.session;
-  if (sky && s && s.serverTimeOffset) sky.timeOfDay = timeOfDayFromServerTime(s.clientTime + s.serverTimeOffset, 7620);
+  if (sky && s && s.serverTimeOffset) sky.timeOfDay = timeOfDayFromServerTime(s.clientTime + s.serverTimeOffset, sky.gameTime.dayLength, sky.gameTime.zeroTimeOfYear);
   if (sky) {
     sky.update(dt, camera);
     const L = sky.lighting;

@@ -324,6 +324,6 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // debugging handles
-(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load, viewModel, animated, replay, frameOnce: () => frame(performance.now()), get particles() { return particles; }, get replayWorld() { return replayWorld; } };
+(globalThis as unknown as { acweb: unknown }).acweb = { THREE, scene, world, camera, fly, get assets() { return assets; }, get terrain() { return terrain; }, get objects() { return objects; }, load, viewModel, animated, replay, frameOnce: () => frame(performance.now()), get sky() { return sky; }, get particles() { return particles; }, get replayWorld() { return replayWorld; } };
 
 if (new URLSearchParams(location.search).get("auto") === "1") load();

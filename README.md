@@ -130,6 +130,7 @@ Type these in the chat box.
 | `/mp`, `/marketplace` | recall to the Marketplace |
 | `/house`, `/mansion`, `/hom`, `/hometown` | house, mansion and hometown recalls |
 | `/pkarena`, `/pklarena` | PK and PK-lite arena recalls |
+| `/time` | the current Dereth time of day (compare with the retail client's sky) |
 | `/blink` | jump one landblock ahead (also the Blink button) |
 | `/fly` | toggle fly mode: floors ignored, R and F move vertically, positions are reported airborne; `/fly` again lands you |
 | `/noclip`, `/ghost` | toggle walking through walls |

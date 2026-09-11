@@ -13,11 +13,14 @@ export class WorldStreamer {
   readonly terrain: TerrainRenderer;
   readonly objects: ObjectRenderer;
   readonly envcells: EnvCellRenderer;
-  private loaded = new Map<number, THREE.Object3D[]>();
+  private loaded = new Map<number, { objs: THREE.Object3D[]; detail: boolean }>();
   private loading = new Set<number>();
   private centerX = -1;
   private centerY = -1;
-  radius = 1;
+  /** landblocks with objects, scenery and interiors around the player */
+  radius = 2;
+  /** landblocks with terrain only, beyond `radius` */
+  terrainRadius = 5;
   scenery = true;
   interiors = true;
   onLog: ((s: string) => void) | null = null;
@@ -49,6 +52,11 @@ export class WorldStreamer {
     if (this.scenery) await this.objects.preloadScenes();
   }
 
+  /** Distance (world units) to the edge of loaded terrain; fog should end before this. */
+  get viewDistance(): number {
+    return (this.terrainRadius + 0.5) * BLOCK_LENGTH;
+  }
+
   /** Call whenever the player moves; loads/unloads as the center landblock changes. */
   update(worldX: number, worldY: number) {
     const cx = Math.floor(worldX / BLOCK_LENGTH), cy = Math.floor(worldY / BLOCK_LENGTH);
@@ -57,46 +65,66 @@ export class WorldStreamer {
     this.centerX = cx;
     this.centerY = cy;
     this.mode = mode;
-    const want = new Set<number>();
+    const want = new Map<number, boolean>(); // id -> wants detail
     if (mode === "dungeon") {
       // a dungeon is one landblock; neighbouring dungeon landblocks overlap it in space, so load only this one
-      want.add((this.playerBlock! | 0xffff) >>> 0);
+      want.set((this.playerBlock! | 0xffff) >>> 0, true);
     } else {
-      for (let x = cx - this.radius; x <= cx + this.radius; x++) {
-        for (let y = cy - this.radius; y <= cy + this.radius; y++) {
+      const R = Math.max(this.radius, this.terrainRadius);
+      for (let x = cx - R; x <= cx + R; x++) {
+        for (let y = cy - R; y <= cy + R; y++) {
           if (x < 0 || y < 0 || x > 0xfe || y > 0xfe) continue;
-          want.add(landblockId(x, y));
+          const detail = Math.abs(x - cx) <= this.radius && Math.abs(y - cy) <= this.radius;
+          want.set(landblockId(x, y), detail);
         }
       }
     }
-    for (const [id, objs] of this.loaded) {
-      if (!want.has(id)) {
-        for (const o of objs) o.parent?.remove(o);
-        this.loaded.delete(id);
+    for (const [id, entry] of this.loaded) {
+      const w = want.get(id);
+      if (w === undefined || (entry.detail && !w)) {
+        // unload entirely, or drop detail (everything but the terrain mesh) when it drifts out of the detail ring
+        const keep = w !== undefined ? entry.objs.filter((o) => o.name.startsWith("lb_")) : [];
+        for (const o of entry.objs) if (!keep.includes(o)) o.parent?.remove(o);
         for (const cid of [...this.envcells.cells.keys()]) if ((cid & 0xffff0000) === (id & 0xffff0000)) this.envcells.cells.delete(cid);
+        if (w === undefined) this.loaded.delete(id);
+        else this.loaded.set(id, { objs: keep, detail: false });
       }
     }
-    for (const id of want) if (!this.loaded.has(id) && !this.loading.has(id)) this.load(id);
+    // nearest first so the player's surroundings appear before the horizon
+    const order = [...want.entries()].sort((a, b) => {
+      const da = Math.hypot((a[0] >>> 24) - cx, ((a[0] >>> 16) & 0xff) - cy), db = Math.hypot((b[0] >>> 24) - cx, ((b[0] >>> 16) & 0xff) - cy);
+      return da - db;
+    });
+    for (const [id, detail] of order) {
+      const entry = this.loaded.get(id);
+      if (this.loading.has(id)) continue;
+      if (!entry) this.load(id, detail);
+      else if (detail && !entry.detail) this.load(id, true, entry.objs);
+    }
   }
 
-  private async load(id: number) {
+  private async load(id: number, detail: boolean, existing: THREE.Object3D[] = []) {
     this.loading.add(id);
-    const objs: THREE.Object3D[] = [];
+    const objs: THREE.Object3D[] = [...existing];
     try {
       const dungeon = await this.objects.isDungeon(id);
-      const mesh = dungeon ? null : await this.terrain.landblock(id);
-      if (mesh) { this.outdoor.add(mesh); objs.push(mesh); }
-      const g = await this.objects.landblockObjects(id);
-      this.outdoor.add(g); objs.push(g);
-      if (this.interiors) {
-        const r = await this.envcells.landblockCells(id);
-        this.indoor.add(r.group); objs.push(r.group);
+      if (!existing.length) {
+        const mesh = dungeon ? null : await this.terrain.landblock(id);
+        if (mesh) { this.outdoor.add(mesh); objs.push(mesh); }
       }
-      if (this.scenery && !dungeon) {
-        const geo = this.terrain.geometries.get(id);
-        if (geo) { const s = await this.objects.scenery(id, geo); this.outdoor.add(s); objs.push(s); }
+      if (detail) {
+        const g = await this.objects.landblockObjects(id);
+        this.outdoor.add(g); objs.push(g);
+        if (this.interiors) {
+          const r = await this.envcells.landblockCells(id);
+          this.indoor.add(r.group); objs.push(r.group);
+        }
+        if (this.scenery && !dungeon) {
+          const geo = this.terrain.geometries.get(id);
+          if (geo) { const s = await this.objects.scenery(id, geo); this.outdoor.add(s); objs.push(s); }
+        }
       }
-      this.loaded.set(id, objs);
+      this.loaded.set(id, { objs, detail });
     } catch (e) {
       this.onLog?.(`landblock ${id.toString(16)} failed: ${(e as Error).message} (will retry)`);
       for (const o of objs) o.parent?.remove(o);
@@ -105,6 +133,11 @@ export class WorldStreamer {
     } finally {
       this.loading.delete(id);
     }
+  }
+
+  /** True once the landblock under a point has at least its terrain loaded. */
+  isLoaded(worldX: number, worldY: number): boolean {
+    return this.loaded.has(landblockId(Math.floor(worldX / BLOCK_LENGTH), Math.floor(worldY / BLOCK_LENGTH)));
   }
 
   geometryAt(worldX: number, worldY: number): LandblockGeometry | undefined {
@@ -130,7 +163,7 @@ export class WorldStreamer {
       }
     } else {
       const id = landblockId(Math.floor(x / BLOCK_LENGTH), Math.floor(y / BLOCK_LENGTH));
-      const mesh = this.loaded.get(id)?.[0];
+      const mesh = this.loaded.get(id)?.objs.find((o) => o.name.startsWith("lb_"));
       candidates = mesh ? [mesh] : [];
       // also allow standing on interior floors of buildings when detection missed
       for (const c of this.envcells.cells.values()) if (c.box.containsPoint(new THREE.Vector3(x, y, z))) candidates.push(c.group);

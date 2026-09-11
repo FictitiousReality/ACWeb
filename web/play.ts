@@ -519,8 +519,12 @@ function frame(now: number) {
     sun.color.copy(L.sunColor); sun.intensity = L.sunIntensity;
     sun.position.copy(L.sunDir).negate().multiplyScalar(100);
     ambient.color.copy(L.ambientColor); ambient.intensity = L.ambientIntensity;
-    (scene.fog as THREE.Fog).color.copy(L.fogColor); (scene.fog as THREE.Fog).near = L.fogNear; (scene.fog as THREE.Fog).far = L.fogFar;
-    streamer?.terrain.setLighting(L);
+    // never let the fog end beyond the loaded terrain, or the void shows through
+    const view = streamer ? streamer.viewDistance : 1400;
+    const fogFar = Math.min(L.fogFar, view - 60);
+    const fogNear = Math.min(L.fogNear, fogFar * 0.55);
+    (scene.fog as THREE.Fog).color.copy(L.fogColor); (scene.fog as THREE.Fog).near = fogNear; (scene.fog as THREE.Fog).far = fogFar;
+    streamer?.terrain.setLighting({ ...L, fogNear, fogFar });
   }
   streamer?.terrain.updateLight(camera, sunDir);
   renderer.clear();

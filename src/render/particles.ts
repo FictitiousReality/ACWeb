@@ -333,11 +333,11 @@ export class ParticleSystem {
           case 3: case 8: case 10: case 4: case 9: case 11:
             pos.copy(p.b).multiplyScalar(t * t / 2).addScaledVector(p.a, t).add(origin).add(p.offset); break;
           case 5: {
-            // Swarm (client formula via ACE): unit-radius orbit around A*t + C + origin + offset.
-            // C is an offset, not a radius: the cloud spreads over a couple of metres and bobs
-            // a full metre vertically, which is the look of the life buffs.
-            const sw = p.a.clone().multiplyScalar(t).add(p.c).add(origin).add(p.offset);
-            pos.set(Math.cos(t * p.b.x) + sw.x, Math.sin(t * p.b.y) + sw.y, Math.cos(t * p.b.z) + sw.z);
+            // Swarm: orbit of amplitude C (per axis) around A*t + origin + offset. ACE's port adds C
+            // instead, which puts every orbit off-centre; with C as amplitude the EnchantUp swarm
+            // (c = 1,1,0; a rising) is the classic spiral up the body, so that reading is kept.
+            const sw = p.a.clone().multiplyScalar(t).add(origin).add(p.offset);
+            pos.set(Math.cos(t * p.b.x) * p.c.x + sw.x, Math.sin(t * p.b.y) * p.c.y + sw.y, Math.cos(t * p.b.z) * p.c.z + sw.z);
             break;
           }
           case 6: pos.copy(p.b).multiplyScalar(t).addScaledVector(p.c, p.a.x).multiplyScalar(t).add(p.offset).add(origin); break;

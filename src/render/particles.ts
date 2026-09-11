@@ -156,12 +156,22 @@ export class ParticleSystem {
     const info = await this.info(infoId);
     if (this.debug) console.log(`[fx] create emitter ${infoId.toString(16)} source=${source} info=${!!info} dead=${this.dead.has(host)}`);
     if (!info || this.dead.has(host)) return;
-    // sprites textured from the hardware GfxObj; the client drops emitters without one
-    // (ACE ParticleEmitter.SetInfo), so the mesh path is only a fallback for viewer use
+    // the client drops emitters without a hardware GfxObj (ACE ParticleEmitter.SetInfo). A hardware
+    // GfxObj that is a single quad is drawn as a camera-facing sprite; anything else (the rotating
+    // blades of the protection buffs, rings...) is drawn as the mesh itself
     if (!info.hwGfxObjId) return;
-    const look = await this.look(info.hwGfxObjId);
-    const tmpl = !look && info.gfxObjId ? await this.meshLook(info.gfxObjId) : null;
+    const hw = await this.assets.gfxObj(info.hwGfxObjId);
+    const quad = !!hw && hw.vertexArray.vertices.size <= 4 && hw.polygons.size === 1;
+    const look = quad ? await this.look(info.hwGfxObjId) : null;
+    const tmpl = !quad ? await this.meshLook(info.hwGfxObjId) : null;
     if (!look && !tmpl) return;
+    // mesh particles: unlit, translucent, additive where the surface says so
+    const additive = new Set<string>();
+    if (tmpl) {
+      const names = new Set<string>();
+      tmpl.traverse((o: THREE.Object3D) => { const mm = (o as THREE.Mesh).material; if (mm) for (const x of Array.isArray(mm) ? mm : [mm]) names.add(x.name); });
+      for (const nm of names) { const su = await this.assets.surface(parseInt(nm, 16)); if (su && su.type & SurfaceFlags.Additive) additive.add(nm); }
+    }
     const key = emitterId ? this.key(host, emitterId) : (source ?? `anon:${this.nextId++}`);
     this.destroyKey(key);
     const parent = (partIndex >= 0 && host.parts && host.parts[partIndex]) ? host.parts[partIndex] : host.root;
@@ -181,7 +191,13 @@ export class ParticleSystem {
           const mesh = o as THREE.Mesh;
           if (!mesh.isMesh) return;
           const src = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          const cl = src.map((mm: THREE.Material) => { const c = mm.clone(); c.transparent = true; c.depthWrite = false; return c; });
+          const cl = src.map((mm: THREE.Material) => {
+            const c = mm.clone() as THREE.MeshLambertMaterial;
+            c.transparent = true; c.depthWrite = false;
+            if (additive.has(mm.name)) c.blending = THREE.AdditiveBlending;
+            if (c.map) { c.emissiveMap = c.map; c.emissive.setScalar(1); c.color.setScalar(0); } // unlit
+            return c;
+          });
           mesh.material = Array.isArray(mesh.material) ? cl : cl[0];
           mats.push(...cl);
         });

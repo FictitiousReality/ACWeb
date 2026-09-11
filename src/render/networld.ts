@@ -74,6 +74,18 @@ export class NetWorld {
   /** children whose parent model isn't available yet */
   private pendingChildren = new Map<number, WorldObject>();
 
+  /** the local player's position, for turn-to-object motions aimed at us */
+  playerPos: (() => THREE.Vector3 | null) | null = null;
+
+  /** world position of an object we know about (entity, held item's owner, or the local player) */
+  positionOf(guid: number): THREE.Vector3 | null {
+    if (guid === this.playerGuid) return this.playerPos?.() ?? null;
+    const e = this.entities.get(guid);
+    if (e) return e.simPos;
+    const held = this.attached.get(guid);
+    return held ? this.positionOf(held.parent) : null;
+  }
+
   private hostModel(guid: number): AnimatedModel | null {
     if (guid === this.playerGuid) return this.playerHost?.() ?? null;
     return this.entities.get(guid)?.model ?? null;
@@ -246,7 +258,18 @@ export class NetWorld {
       return;
     }
     if (md.type === 8 || md.type === 9) { // TurnToObject / TurnToHeading (degrees, clockwise from north)
-      if (md.moveTo) e.simYaw = -md.moveTo.heading * Math.PI / 180;
+      if (md.moveTo) {
+        let yaw = -md.moveTo.heading * Math.PI / 180;
+        if (md.type === 8 && md.moveTo.target) {
+          // face the target object; the message's heading is only an offset from that
+          const t = this.positionOf(md.moveTo.target);
+          if (t) yaw += Math.atan2(-(t.x - e.simPos.x), t.y - e.simPos.y);
+        }
+        // turn smoothly over about a third of a second
+        e.yawOffset = wrapAngle(e.yawOffset + e.simYaw - yaw);
+        e.corrRate = 9;
+        e.simYaw = yaw;
+      }
       e.omega = 0;
       return;
     }

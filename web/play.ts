@@ -159,6 +159,7 @@ async function openDats() {
   netWorld = new NetWorld(assets, streamer.objects, particles);
   netWorld.groundAt = (x, y, z) => streamer!.floorAt(x, y, z);
   netWorld.playerHost = () => player?.model ?? null;
+  netWorld.playerPos = () => player?.pos ?? null;
   // closed doors, chests, statues... block the player; creatures and ethereal objects don't
   streamer.extraColliders = () => {
     const out: THREE.Object3D[] = [];
@@ -318,7 +319,11 @@ $("loginForm").addEventListener("submit", async (ev) => {
       },
       onPlayerMotion: (m) => {
         if (!player) return;
-        if ((m.type === 8 || m.type === 9) && m.moveTo) player.faceHeading(m.moveTo.heading);
+        if (m.type === 9 && m.moveTo) player.faceHeading(m.moveTo.heading);
+        if (m.type === 8 && m.moveTo) {
+          const t = m.moveTo.target ? netWorld?.positionOf(m.moveTo.target) : null;
+          if (t) player.faceTowards(t.x, t.y, m.moveTo.heading); else player.faceHeading(m.moveTo.heading);
+        }
         // the server echoes our movement with RunForward at our run rate: adopt it so we move as fast as it allows
         if (m.state && m.state.forward && commandFromKey(m.state.forward) === 0x44000007 && m.state.forwardSpeed > 0 && m.state.forwardSpeed !== player.runRate) {
           player.runRate = m.state.forwardSpeed;

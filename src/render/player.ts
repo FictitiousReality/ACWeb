@@ -129,6 +129,12 @@ export class PlayerController {
     return true;
   }
 
+  /** Face a world position (server TurnToObject), plus an optional heading offset in degrees. */
+  faceTowards(x: number, y: number, offsetDeg = 0) {
+    this.yaw = Math.atan2(-(x - this.pos.x), y - this.pos.y) - offsetDeg * Math.PI / 180;
+    this.root.rotation.set(0, 0, this.yaw);
+  }
+
   /** Face an AC heading (degrees, 0 = north, clockwise) — used when the server turns us to an NPC. */
   faceHeading(headingDeg: number) {
     this.yaw = -headingDeg * Math.PI / 180;

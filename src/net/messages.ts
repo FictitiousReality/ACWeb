@@ -199,8 +199,9 @@ export function parseMovementData(r: BinReader, header: boolean): MovementData {
       md.moveTo = { cell, x, y, z, runRate, heading };
       break;
     }
-    case 8: { // TurnToObject
-      const target = r.u32(); const heading = r.f32(); r.u32(); r.f32(); r.f32();
+    case 8: { // TurnToObject: target, object heading (unused by ACE), TurnToParameters (flags, speed, desired heading offset)
+      const target = r.u32(); r.f32(); r.u32(); r.f32(); const heading = r.f32();
+      // the client computes the facing toward the target itself; `heading` is only an offset added to it
       md.moveTo = { target, cell: 0, x: 0, y: 0, z: 0, runRate: 0, heading };
       break;
     }

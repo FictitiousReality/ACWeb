@@ -97,6 +97,7 @@ export class GameClient {
       onState: (s: SessionState, d?: string) => this.events.onState?.(s, d),
       onLog: (l) => this.log(l),
       onMessage: (m) => this.handle(m),
+      onHandlerError: (m, e) => this.onCapture?.(m.opcode, m.data, e.message),
     });
     this.session = session;
     this.transport.onReceive = (offset, data) => session.receive(offset, data);
@@ -205,8 +206,13 @@ export class GameClient {
     this.send(buildAutonomousPosition(pos, this.playerSequences, contact), Group.SecureWeenie);
   }
 
+  /** debug aid: raw messages of these opcodes (and any message whose handler throws) go to onCapture */
+  captureOpcodes = new Set<number>();
+  onCapture: ((opcode: number, data: Uint8Array, error?: string) => void) | null = null;
+
   private handle(m: GameMessage) {
     const r = m.reader;
+    if (this.onCapture && this.captureOpcodes.has(m.opcode)) this.onCapture(m.opcode, m.data);
     switch (m.opcode) {
       case Opcode.CharacterList: {
         this.characters = parseCharacterList(r);

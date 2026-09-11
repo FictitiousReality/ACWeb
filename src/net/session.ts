@@ -26,6 +26,7 @@ export interface GameMessage {
 export interface SessionEvents {
   onState?(state: SessionState, detail?: string): void;
   onMessage?(msg: GameMessage): void;
+  onHandlerError?(msg: GameMessage, error: Error): void;
   onLog?(line: string): void;
 }
 
@@ -268,6 +269,7 @@ export class NetSession {
       this.events.onMessage?.(msg);
     } catch (e) {
       this.log(`handler error for opcode ${msg.opcode.toString(16)}: ${(e as Error).message} (${msg.data.length} bytes, see console)`);
+      this.events.onHandlerError?.(msg, e as Error);
       console.error(e, "message hex:", [...msg.data.subarray(0, 400)].map((b) => b.toString(16).padStart(2, "0")).join(""));
     }
   }

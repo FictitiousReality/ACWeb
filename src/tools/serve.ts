@@ -72,8 +72,14 @@ async function serveDat(req: Request, name: string): Promise<Response> {
   return new Response(new Uint8Array(body).buffer as ArrayBuffer, { status: 206, headers });
 }
 
-Deno.serve({ port, hostname: "127.0.0.1" }, (req) => {
+Deno.serve({ port, hostname: "127.0.0.1" }, async (req) => {
   const url = new URL(req.url);
   if (url.pathname.startsWith("/dat/")) return serveDat(req, url.pathname.slice(5));
+  if (url.pathname === "/capture" && req.method === "POST") {
+    // debug aid: the client posts raw game messages (hex) here; decode with src/tools/decodecap.ts
+    const text = await req.text();
+    await Deno.writeTextFile("captures.log", text.endsWith("\n") ? text : text + "\n", { append: true });
+    return new Response("ok", { headers: { "access-control-allow-origin": "*" } });
+  }
   return serveDir(req, { fsRoot: webRoot, quiet: true, enableCors: true });
 });

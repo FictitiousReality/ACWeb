@@ -11,6 +11,8 @@ import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject } from "../src/net/client.ts";
 import { CHARGEN_ID, SKILLTABLE_ID, parseCharGen, parseSkillTable } from "../src/dat/mod.ts";
 import type { CharGen, SkillBase } from "../src/dat/mod.ts";
+import { Opcode } from "../src/net/messages.ts";
+import { commandFromKey, MotionCommandNames } from "../src/dat/motionenums.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const statusEl = $("status");
@@ -289,7 +291,14 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onObjectCreate: (o) => onObject(o),
       onObjectUpdate: (o) => onObject(o),
       onObjectPosition: (o, u) => { if (o.guid === client!.playerGuid) { player?.setFromPosition(u.position); } else netWorld?.onPosition(o, u); },
-      onObjectMotion: (o, m) => { if (o.guid !== client!.playerGuid) netWorld?.onMotion(o, m); },
+      onObjectMotion: (o, m) => {
+        if (o.guid === client!.playerGuid) return;
+        if (client!.session?.debug) {
+          const st = m.state;
+          log(`motion ${o.name}: type=${m.type} stance=${m.stance.toString(16)}${st ? ` fwd=${MotionCommandNames[commandFromKey(st.forward)] ?? st.forward.toString(16)}x${st.forwardSpeed.toFixed(2)} side=${st.sidestep ? MotionCommandNames[commandFromKey(st.sidestep)] : "-"}x${st.sidestepSpeed.toFixed(2)} turn=${st.turn ? MotionCommandNames[commandFromKey(st.turn)] : "-"}x${st.turnSpeed.toFixed(2)} cmds=[${st.commands.map((c) => MotionCommandNames[commandFromKey(c.command)] ?? c.command.toString(16)).join(",")}]` : ""}${m.moveTo ? ` moveTo run=${m.moveTo.runRate}` : ""} model=${netWorld?.entities.get(o.guid)?.model ? "yes" : "no"}`, "debug");
+        }
+        netWorld?.onMotion(o, m);
+      },
       onPlayerMotion: (m) => { if (player && (m.type === 8 || m.type === 9) && m.moveTo) player.faceHeading(m.moveTo.heading); },
       onObjectDelete: (g) => netWorld?.remove(g),
       onPlayEffect: (o, sc, mod) => { if (o.guid === client!.playerGuid) player?.model?.playScript(sc, mod); else netWorld?.onPlayEffect(o, sc, mod); },
@@ -301,7 +310,17 @@ $("loginForm").addEventListener("submit", async (ev) => {
       },
     });
     client.connect(host, port, account, password);
-    if (new URLSearchParams(location.search).get("debug") === "1") client.session!.debug = true;
+    if (new URLSearchParams(location.search).get("debug") === "1") {
+      client.session!.debug = true;
+      // post raw movement messages to the dev server (captures.log) so they can be decoded offline
+      const queue: string[] = [];
+      client.captureOpcodes = new Set([Opcode.Motion, Opcode.UpdatePosition, Opcode.ObjectCreate, Opcode.UpdateObject]);
+      client.onCapture = (op, data, err) => {
+        const hex = Array.from(data.subarray(0, 600), (b) => b.toString(16).padStart(2, "0")).join("");
+        queue.push(`${Date.now()} ${op.toString(16)} ${err ? "ERR:" + err.replace(/\s+/g, "_") : "-"} ${hex}`);
+      };
+      setInterval(() => { if (queue.length) { const body = queue.splice(0).join("\n"); fetch("/capture", { method: "POST", body }).catch(() => {}); } }, 2000);
+    }
     $<HTMLInputElement>("password").value = "";
   } catch (e) {
     loginStatus.textContent = `error: ${(e as Error).message}`;

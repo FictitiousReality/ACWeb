@@ -12,17 +12,75 @@ import type { CharGen, SkillBase } from "../src/dat/mod.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const statusEl = $("status");
-const chatlog = $("chatlog");
 const loginStatus = $("loginStatus");
-function log(line: string, cls = "") {
-  if (cls !== "c-debug") console.log(line);
-  const div = document.createElement("div");
-  div.textContent = line;
-  if (cls) div.className = cls;
-  chatlog.appendChild(div);
-  chatlog.scrollTop = chatlog.scrollHeight;
-  while (chatlog.children.length > 300) chatlog.removeChild(chatlog.firstChild!);
+
+// ---------- chat panel with tabs ----------
+type Tab = "all" | "chat" | "system" | "debug";
+const TABS: Tab[] = ["all", "chat", "system", "debug"];
+let activeTab: Tab = "all";
+let showTimestamps = false;
+const unread: Record<Tab, number> = { all: 0, chat: 0, system: 0, debug: 0 };
+const CHAT_CLASSES = new Set(["c-speech", "c-tell", "c-outtell", "c-emote", "c-you", "c-broadcast"]);
+const MAX_LINES = 400;
+
+function tabsFor(cls: string): Tab[] {
+  if (cls === "c-debug") return ["debug"];
+  if (CHAT_CLASSES.has(cls)) return ["all", "chat"];
+  return ["all", "system"];
 }
+
+/** Append a line. `sender` makes the name clickable to start a tell. */
+function log(line: string, cls = "", sender?: string) {
+  if (cls !== "c-debug") console.log(line);
+  for (const tab of tabsFor(cls)) {
+    const box = $(`log-${tab}`);
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 8;
+    const div = document.createElement("div");
+    if (cls) div.className = cls;
+    if (showTimestamps) {
+      const ts = document.createElement("span");
+      ts.className = "ts";
+      ts.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      div.appendChild(ts);
+    }
+    if (sender && line.startsWith(sender)) {
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = sender;
+      name.onclick = () => { const inp = $<HTMLInputElement>("chatin"); inp.value = `/tell ${sender}, `; inp.focus(); };
+      div.appendChild(name);
+      div.appendChild(document.createTextNode(line.slice(sender.length)));
+    } else {
+      div.appendChild(document.createTextNode(line));
+    }
+    box.appendChild(div);
+    while (box.children.length > MAX_LINES) box.removeChild(box.firstChild!);
+    if (atBottom) box.scrollTop = box.scrollHeight;
+    if (tab !== activeTab && tab !== "all" && cls !== "c-debug") {
+      unread[tab]++;
+      updateBadges();
+    }
+  }
+}
+function updateBadges() {
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#chattabs button[data-tab]")) {
+    const tab = b.dataset.tab as Tab;
+    const badge = b.querySelector(".badge")!;
+    badge.textContent = unread[tab] > 0 ? String(unread[tab]) : "";
+  }
+}
+function setTab(tab: Tab) {
+  activeTab = tab;
+  unread[tab] = 0;
+  for (const t of TABS) $(`log-${t}`).classList.toggle("active", t === tab);
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#chattabs button[data-tab]")) b.classList.toggle("active", b.dataset.tab === tab);
+  const box = $(`log-${tab}`);
+  box.scrollTop = box.scrollHeight;
+  updateBadges();
+}
+for (const b of document.querySelectorAll<HTMLButtonElement>("#chattabs button[data-tab]")) b.onclick = () => setTab(b.dataset.tab as Tab);
+$("chatClear").onclick = () => { $(`log-${activeTab}`).innerHTML = ""; };
+$("chatTs").onclick = () => { showTimestamps = !showTimestamps; };
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -185,13 +243,13 @@ $("loginForm").addEventListener("submit", async (ev) => {
     loginStatus.textContent = "connecting...";
     client?.disconnect();
     client = new GameClient(relay, iterations, {
-      onLog: (l) => { log(l, l.startsWith("<<") || l.startsWith(">>") ? "c-debug" : "c-system"); loginStatus.textContent = l; },
+      onLog: (l) => { log(l, "c-debug"); if (!l.startsWith("<<") && !l.startsWith(">>")) loginStatus.textContent = l; },
       onState: (s, d) => { statusEl.textContent = `${s}${d ? " " + d : ""}`; if (s === "error" || s === "closed") loginStatus.textContent = `${s}: ${d ?? ""}`; },
       onChat: (text, kind, sender) => {
         const [k, sub] = kind.split(":");
         const n = Number(sub);
-        if (k === "speech") log(`${sender} says, "${text}"`, "c-speech");
-        else if (k === "tell") log(`${sender} tells you, "${text}"`, "c-tell");
+        if (k === "speech") log(`${sender} says, "${text}"`, "c-speech", sender);
+        else if (k === "tell") { lastTeller = sender ?? lastTeller; log(`${sender} tells you, "${text}"`, "c-tell", sender); }
         else if (k === "emote") log(text, "c-emote");
         else if (k === "system") log(text, n === 4 ? "c-outtell" : n === 0x14 || n === 0 ? "c-broadcast" : n === 6 || n === 0x15 || n === 0x16 ? "c-combat" : n === 7 || n === 0x11 ? "c-magic" : "c-system");
         else log(text, "c-system");
@@ -266,6 +324,7 @@ function onObject(o: WorldObject) {
 }
 
 $("chatin").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { (e.target as HTMLInputElement).blur(); return; }
   if (e.key !== "Enter") return;
   const inp = e.target as HTMLInputElement;
   const text = inp.value.trim();
@@ -273,12 +332,21 @@ $("chatin").addEventListener("keydown", (e) => {
   if (text && client) sendChat(text);
   inp.blur();
 });
+let lastTeller: string | null = null;
 function sendChat(text: string) {
   if (!client) return;
+  // reply to the last person who sent us a tell
+  if (/^\/r\b/i.test(text)) {
+    const msg = text.replace(/^\/r\s*/i, "").trim();
+    if (!lastTeller) { log("nobody has sent you a tell yet", "c-error"); return; }
+    if (!msg) { log(`usage: /r message  (replies to ${lastTeller})`, "c-error"); return; }
+    client.tell(lastTeller, msg);
+    return;
+  }
   const m = text.match(/^\/(\w+)\s*(.*)$/s);
   if (!m) { client.say(text); log(`You say, "${text}"`, "c-you"); return; }
   const cmd = m[1].toLowerCase(), rest = m[2].trim();
-  if (cmd === "tell" || cmd === "t" || cmd === "r") {
+  if (cmd === "tell" || cmd === "t") {
     // "/tell Name, message" or "/t Name message"
     let name: string, msg: string;
     if (rest.includes(",")) { name = rest.slice(0, rest.indexOf(",")).trim(); msg = rest.slice(rest.indexOf(",") + 1).trim(); }

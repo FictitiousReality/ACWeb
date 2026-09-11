@@ -79,8 +79,10 @@ export class SkyRenderer {
         const mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, depthWrite: false, depthTest: false, fog: false });
         if (s && s.type & (SurfaceFlags.Base1Image | SurfaceFlags.Base1ClipMap)) {
           const clip = (s.type & SurfaceFlags.Base1ClipMap) !== 0;
-          // clamp: sky polygons end exactly at texture edges, repeat wrapping draws seams
-          const tex = await this.assets.threeTexture(s.origTextureId, clip, s.origPaletteId, undefined, true);
+          // static sky polygons end exactly at texture edges, so clamp them to avoid seams;
+          // scrolling layers (clouds) tile as they move and must keep repeat wrapping
+          const scrolls = desc.texVelocityX !== 0 || desc.texVelocityY !== 0;
+          const tex = await this.assets.threeTexture(s.origTextureId, clip, s.origPaletteId, undefined, !scrolls);
           if (tex) mat.map = tex;
           if (clip) mat.alphaTest = 0.5;
           if (s.type & SurfaceFlags.Alpha || s.type & SurfaceFlags.InvAlpha) mat.transparent = true;

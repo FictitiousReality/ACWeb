@@ -7,7 +7,10 @@
     "watch": "deno bundle --platform browser --sourcemap linked --watch -o web/dist/main.js web/main.ts",
     "serve": "deno run --allow-read --allow-net --allow-env --allow-write=captures.log src/tools/serve.ts",
     "proxy": "deno run --unstable-net --allow-net src/tools/proxy.ts",
-    "probe": "deno run --unstable-net --allow-net src/tools/probe.ts"
+    "probe": "deno run --unstable-net --allow-net src/tools/probe.ts",
+    "launch": "deno run --unstable-net --allow-read --allow-net --allow-env --allow-run --allow-write=captures.log src/tools/launcher.ts",
+    "compile": "deno task build && deno compile --unstable-net --allow-read --allow-net --allow-env --allow-run --allow-write=captures.log --include web/ --output dist/acweb src/tools/launcher.ts",
+    "release": "deno task build && for t in aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-unknown-linux-gnu; do deno compile --unstable-net --allow-read --allow-net --allow-env --allow-run --allow-write=captures.log --include web/ --target $t --output dist/acweb-$t src/tools/launcher.ts || exit 1; done"
   },
   "imports": {
     "three": "npm:three@0.170.0",

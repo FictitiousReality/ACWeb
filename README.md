@@ -71,12 +71,44 @@ groups, sound.
 
 ## Running
 
+### Ready-made executable
+
+The easiest way: one program that serves the client, reads your dat files
+and runs the relay. No install, nothing else to set up.
+
+1. Download the build for your machine from the
+   [releases page](https://github.com/FictitiousReality/ACWeb/releases)
+   (`acweb-aarch64-apple-darwin` for Apple Silicon Macs,
+   `x86_64-apple-darwin` for Intel Macs, `x86_64-pc-windows-msvc.exe` for
+   Windows, `x86_64-unknown-linux-gnu` for Linux).
+2. Put your Asheron's Call dat files (`client_portal.dat`, `client_cell_1.dat`,
+   optionally `client_local_English.dat`) in a folder called `dats` next to the
+   program, or anywhere and pass the folder as the first argument.
+3. Run it. It prints the address (http://127.0.0.1:8000/play.html) and opens
+   your browser. Keep the window open while you play; Ctrl+C quits.
+
+```bash
+./acweb                       # dats in ./dats, ~/Downloads/ac-updates, or $ACWEB_DATS
+./acweb /path/to/dat/folder   # explicit folder
+./acweb --port 8000 --relay 8001 --no-open
+```
+
+macOS may refuse to open an unsigned download the first time: right-click
+the file and choose Open, or run `xattr -d com.apple.quarantine acweb`.
+Windows SmartScreen shows a similar prompt; choose "run anyway".
+
+To build the executables yourself: `deno task compile` (this machine) or
+`deno task release` (all four targets into `dist/`).
+
+### From source
+
 Requires [Deno](https://deno.com) 2.x. Nothing else is installed by this project.
 
 ```bash
 deno task build                    # bundles web/main.ts and web/play.ts into web/dist/
 deno task serve ~/path/to/dats     # http://127.0.0.1:8000 — static files + /dat/* with Range support
 deno task proxy                    # ws://127.0.0.1:8001 — WebSocket <-> UDP relay to the game server
+deno task launch [datDir]          # both of the above in one process, and opens the browser
 ```
 
 - **Play**: open http://127.0.0.1:8000/play.html, enter the server host and

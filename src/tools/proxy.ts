@@ -8,7 +8,10 @@
  *   deno task proxy [listenPort]
  *   ws://127.0.0.1:8001/?host=play.coldeve.ac&port=9000
  */
-const listenPort = Number(Deno.args[0] ?? 8001);
+/** Start the WebSocket <-> UDP relay on a local port. */
+export function startRelay(listenPort: number, quiet = false) {
+  return Deno.serve({ port: listenPort, hostname: "127.0.0.1", onListen: quiet ? () => {} : undefined }, relayHandler);
+}
 
 async function resolve(host: string): Promise<string> {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return host;
@@ -17,7 +20,7 @@ async function resolve(host: string): Promise<string> {
   return a[0];
 }
 
-Deno.serve({ port: listenPort, hostname: "127.0.0.1" }, async (req) => {
+async function relayHandler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (req.headers.get("upgrade") !== "websocket") return new Response("acweb udp relay", { status: 200 });
   const host = url.searchParams.get("host") ?? "127.0.0.1";
@@ -70,4 +73,6 @@ Deno.serve({ port: listenPort, hostname: "127.0.0.1" }, async (req) => {
   };
   socket.onerror = () => socket.close();
   return response;
-});
+}
+
+if (import.meta.main) startRelay(Number(Deno.args[0] ?? 8001));

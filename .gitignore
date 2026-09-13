@@ -4,3 +4,4 @@ node_modules/
 *.dat
 captures.log
 notes/
+dist/

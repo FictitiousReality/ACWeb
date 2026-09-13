@@ -10,9 +10,8 @@
 import { serveDir } from "@std/http/file-server";
 import { fromFileUrl, join } from "@std/path";
 
-const datDir = Deno.args[0] ?? `${Deno.env.get("HOME")}/Downloads/ac-updates`;
-const port = Number(Deno.args[1] ?? 8000);
-const webRoot = fromFileUrl(new URL("../../web/", import.meta.url));
+let datDir = Deno.args[0] ?? `${Deno.env.get("HOME")}/Downloads/ac-updates`;
+let webRoot = fromFileUrl(new URL("../../web/", import.meta.url));
 const allowed = new Set(["client_portal.dat", "client_cell_1.dat", "client_highres.dat", "client_local_English.dat"]);
 
 const handles = new Map<string, { file: Deno.FsFile; size: number }>();
@@ -72,7 +71,14 @@ async function serveDat(req: Request, name: string): Promise<Response> {
   return new Response(new Uint8Array(body).buffer as ArrayBuffer, { status: 206, headers });
 }
 
-Deno.serve({ port, hostname: "127.0.0.1" }, async (req) => {
+/** Start the web + dat server. Returns the server so a launcher can wait on it. */
+export function startWebServer(opts: { datDir: string; port: number; webRoot?: string; quiet?: boolean }) {
+  datDir = opts.datDir;
+  if (opts.webRoot) webRoot = opts.webRoot;
+  return Deno.serve({ port: opts.port, hostname: "127.0.0.1", onListen: opts.quiet ? () => {} : undefined }, handler);
+}
+
+async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (url.pathname.startsWith("/dat/")) return serveDat(req, url.pathname.slice(5));
   if (url.pathname === "/captures.log") {
@@ -86,4 +92,6 @@ Deno.serve({ port, hostname: "127.0.0.1" }, async (req) => {
     return new Response("ok", { headers: { "access-control-allow-origin": "*" } });
   }
   return serveDir(req, { fsRoot: webRoot, quiet: true, enableCors: true });
-});
+}
+
+if (import.meta.main) startWebServer({ datDir, port: Number(Deno.args[1] ?? 8000) });

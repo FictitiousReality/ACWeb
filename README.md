@@ -73,32 +73,43 @@ groups, sound.
 
 ### Ready-made executable
 
-The easiest way: one program that serves the client, reads your dat files
-and runs the relay. No install, nothing else to set up.
+The easiest way to play: one program that serves the client, reads your dat
+files and runs the relay. Nothing to install.
 
 1. Download the build for your machine from the
-   [releases page](https://github.com/FictitiousReality/ACWeb/releases)
-   (`acweb-aarch64-apple-darwin` for Apple Silicon Macs,
-   `x86_64-apple-darwin` for Intel Macs, `x86_64-pc-windows-msvc.exe` for
-   Windows, `x86_64-unknown-linux-gnu` for Linux).
-2. Put your Asheron's Call dat files (`client_portal.dat`, `client_cell_1.dat`,
-   optionally `client_local_English.dat`) in a folder called `dats` next to the
-   program, or anywhere and pass the folder as the first argument.
-3. Run it. It prints the address (http://127.0.0.1:8000/play.html) and opens
-   your browser. Keep the window open while you play; Ctrl+C quits.
+   [latest release](https://github.com/FictitiousReality/ACWeb/releases/latest):
+   `acweb-macos-arm64.tar.gz` (Apple Silicon), `acweb-macos-x64.tar.gz`
+   (Intel Mac), `acweb-windows-x64.zip`, or `acweb-linux-x64.tar.gz`.
+2. Unpack it. You get a folder `acweb` with the program inside.
+3. Copy your Asheron's Call dat files into a folder named `dats` inside that
+   folder: `client_portal.dat` and `client_cell_1.dat` are required,
+   `client_local_English.dat` is optional. (The retail client's install
+   folder has them; the game is free to download.) They are never included
+   in a release.
+4. Run `acweb` (double-click, or from a terminal). It prints the address,
+   http://127.0.0.1:8000/play.html, and opens your browser there. Keep the
+   program running while you play; Ctrl+C or closing its window quits.
+5. On the page, leave the server at `play.coldeve.ac:9000` (or enter another
+   ACEmulator server), enter your account and password, pick or create a
+   character, and enter.
+
+First-run prompts: macOS will say the program is from an unidentified
+developer. Right-click it, choose Open, then Open again; or run
+`xattr -d com.apple.quarantine acweb` in the folder. Windows SmartScreen
+shows "Windows protected your PC": choose More info, then Run anyway. The
+builds are unsigned, which is all those prompts mean.
+
+Options, if you want them:
 
 ```bash
-./acweb                       # dats in ./dats, ~/Downloads/ac-updates, or $ACWEB_DATS
-./acweb /path/to/dat/folder   # explicit folder
-./acweb --port 8000 --relay 8001 --no-open
+./acweb /path/to/dat/folder        # dats somewhere else (or set ACWEB_DATS)
+./acweb --port 8000 --relay 8001   # ports
+./acweb --no-open                  # don't open the browser
 ```
 
-macOS may refuse to open an unsigned download the first time: right-click
-the file and choose Open, or run `xattr -d com.apple.quarantine acweb`.
-Windows SmartScreen shows a similar prompt; choose "run anyway".
-
-To build the executables yourself: `deno task compile` (this machine) or
-`deno task release` (all four targets into `dist/`).
+Updating: download the new release and replace the program; your `dats`
+folder stays. To build the executables yourself: `deno task compile` (this
+machine) or `deno task release` (all four targets into `dist/`).
 
 ### From source
 

@@ -10,7 +10,7 @@
     "probe": "deno run --unstable-net --allow-net src/tools/probe.ts",
     "launch": "deno run --unstable-net --allow-read --allow-net --allow-env --allow-run --allow-write=captures.log src/tools/launcher.ts",
     "compile": "deno task build && deno compile --unstable-net --allow-read --allow-net --allow-env --allow-run --allow-write=captures.log --include web/ --output dist/acweb src/tools/launcher.ts",
-    "release": "deno task build && for t in aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc x86_64-unknown-linux-gnu; do deno compile --unstable-net --allow-read --allow-net --allow-env --allow-run --allow-write=captures.log --include web/ --target $t --output dist/acweb-$t src/tools/launcher.ts || exit 1; done"
+    "release": "deno task build && deno run --allow-run --allow-read --allow-write --allow-env src/tools/release.ts"
   },
   "imports": {
     "three": "npm:three@0.170.0",

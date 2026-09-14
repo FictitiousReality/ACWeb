@@ -35,15 +35,11 @@
     #target { position: fixed; top: 108px; left: 10px; z-index: 3; background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 6px; display: none; cursor: move; }
     #target.show { display: block; }
     #target button { font: inherit; margin-left: 6px; }
-    #inv { position: fixed; top: 40px; right: 10px; width: 300px; max-height: 70vh; overflow-y: auto; z-index: 3; background: rgba(0,0,0,.65); padding: 8px; border-radius: 6px; display: none; }
     #inv.show { display: block; }
-    #inv h3 { margin: 0 0 6px; font-size: 13px; cursor: move; }
     .item { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
     .item:hover { background: rgba(255,255,255,.08); } .item.sel { background: rgba(120,160,255,.25); }
     .item img { width: 24px; height: 24px; image-rendering: pixelated; }
     .item .eq { opacity: .6; font-size: 11px; }
-    #invActions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
-    #invActions button { font: inherit; }
     #vitals { position: fixed; top: 34px; left: 10px; z-index: 3; width: 200px; display: none; font-size: 11px; cursor: move; }
     #vitals .vital { position: relative; height: 16px; margin-bottom: 4px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden; }
     #vitals .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transition: width .25s; }
@@ -52,6 +48,48 @@
     #vitals em { float: right; }
     #jumpbar { position: fixed; left: 50%; top: 40px; width: 220px; height: 10px; margin-left: -110px; background: rgba(0,0,0,.6); border: 1px solid #888; border-radius: 3px; display: none; z-index: 3; }
     #jumpbar div { height: 100%; width: 0; background: #e0c040; transition: width .05s linear; }
+    #char { position: fixed; top: 40px; right: 10px; width: 466px; max-height: 78vh; display: none; flex-direction: column; z-index: 4; background: rgba(0,0,0,.72); border-radius: 6px; overflow: hidden; }
+    #char.show { display: flex; }
+    #charTabs { display: flex; align-items: center; gap: 2px; padding: 4px 6px; white-space: nowrap; background: rgba(255,255,255,.06); cursor: move; }
+    #charTabs button { font: inherit; font-size: 11px; background: rgba(255,255,255,.08); color: #ccc; border: 0; border-radius: 4px; padding: 3px 6px; cursor: pointer; }
+    #charTabs button.active { background: rgba(255,255,255,.22); color: #fff; }
+    #charTabs .spacer { flex: 1; }
+    #charTabs .tool { background: none; color: #999; }
+    .cpane { display: none; padding: 10px; overflow-y: auto; }
+    .cpane.active { display: block; }
+    .cpane h4 { margin: 10px 0 4px; font-size: 12px; color: #dfc98a; }
+    .cpane h4:first-child { margin-top: 0; }
+    .cpane .note { margin: 8px 0 0; font-size: 11px; opacity: .65; }
+    .cpane input[type=text], .cpane input:not([type]) { width: 100%; box-sizing: border-box; margin-bottom: 6px; font: inherit; font-size: 12px; padding: 3px 6px; background: rgba(255,255,255,.08); color: #eee; border: 1px solid #555; border-radius: 4px; }
+    .kv { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; font-size: 12px; }
+    .kv b { font-weight: normal; opacity: .8; }
+    .kv span { text-align: right; }
+    .kv .span2 { grid-column: 1 / -1; }
+    .kv .spec { color: #8fd08f; }
+    .doll { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .doll .slot { background: rgba(255,255,255,.05); border-radius: 4px; padding: 4px; text-align: center; }
+    .doll .slot b { display: block; font-size: 9px; font-weight: normal; opacity: .55; margin-bottom: 2px; }
+    .doll .slot.filled { background: rgba(223,201,138,.14); }
+    .tile { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; }
+    .tile img { width: 32px; height: 32px; image-rendering: pixelated; }
+    .tile.empty { height: 46px; }
+    .tile span { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tile.spell { flex-direction: row; gap: 8px; font-size: 12px; padding: 2px 0; }
+    .tile.spell span { max-width: none; }
+    #cp-itemlist { max-height: 46vh; overflow-y: auto; }
+    #cp-itemlist .item { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    #cp-itemlist .item:hover { background: rgba(255,255,255,.08); }
+    #cp-itemlist .item.sel { background: rgba(223,201,138,.25); }
+    #cp-itemlist .item img { width: 24px; height: 24px; image-rendering: pixelated; }
+    #cp-itemlist .item .eq { margin-left: auto; font-size: 10px; opacity: .6; }
+    #itemActions { display: flex; gap: 6px; margin-top: 8px; }
+    #itemActions button, .cpane > button { font: inherit; font-size: 12px; padding: 3px 8px; cursor: pointer; }
+    .setting { display: grid; grid-template-columns: 1fr 130px 44px; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 6px; }
+    .setting b { font-weight: normal; opacity: .85; }
+    .setting i { font-style: normal; text-align: right; opacity: .7; font-size: 11px; }
+    .setting small { grid-column: 1 / -1; opacity: .5; font-size: 10px; }
+    .setting input[type=checkbox] { justify-self: start; }
+    .motd { font-size: 12px; font-style: italic; opacity: .85; margin: 6px 0; }
     #status { position: fixed; top: 8px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; opacity: .85; z-index: 3; white-space: pre; }
     #tools { position: fixed; top: 8px; right: 10px; z-index: 3; background: rgba(0,0,0,.35); padding: 3px 4px; border-radius: 6px; cursor: move; white-space: nowrap; }
     .grip { display: inline-block; color: #999; padding: 0 6px; cursor: move; user-select: none; font-size: 12px; }
@@ -94,7 +132,30 @@
   </div>
   <div id="tools"><span class="grip" title="drag">⋮⋮</span><button id="btnBlink" type="button" title="jump one landblock in the direction you face (/blink)">Blink ▶</button></div>
   <div id="target"><span id="targetName"></span><button id="btnUse" type="button">Use (U)</button><button id="btnGive" type="button">Give item</button><button id="btnClear" type="button">×</button></div>
-  <div id="inv"><h3>Inventory (I)</h3><div id="invList"></div><div id="invActions"><button id="invUse" type="button">Use</button><button id="invGive" type="button">Give to target</button><button id="invDrop" type="button">Drop</button></div></div>
+  <div id="char">
+    <div id="charTabs">
+      <span class="grip" title="drag">⋮⋮</span>
+      <button type="button" data-ctab="doll" class="active">Character</button>
+      <button type="button" data-ctab="attrs">Attributes</button>
+      <button type="button" data-ctab="skills">Skills</button>
+      <button type="button" data-ctab="spells">Spells</button>
+      <button type="button" data-ctab="items">Inventory</button>
+      <button type="button" data-ctab="alleg">Allegiance</button>
+      <button type="button" data-ctab="settings">Settings</button>
+      <span class="spacer"></span>
+      <button type="button" id="charClose" class="tool" title="close (C)">×</button>
+    </div>
+    <div class="cpane active" id="cp-doll"></div>
+    <div class="cpane" id="cp-attrs"></div>
+    <div class="cpane" id="cp-skills"></div>
+    <div class="cpane" id="cp-spells"></div>
+    <div class="cpane" id="cp-items">
+      <div id="cp-itemlist"></div>
+      <div id="itemActions"><button id="itemUse" type="button">Use</button><button id="itemGive" type="button">Give to target</button><button id="itemDrop" type="button">Drop</button></div>
+    </div>
+    <div class="cpane" id="cp-alleg"></div>
+    <div class="cpane" id="cp-settings"></div>
+  </div>
   <div id="hud">
     <div id="chattabs"><span class="grip" title="drag the chat window">⋮⋮</span>
       <button type="button" data-tab="all" class="active">All<span class="badge"></span></button>

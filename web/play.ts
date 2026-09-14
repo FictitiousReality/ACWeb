@@ -6,6 +6,7 @@ import { NetWorld, positionToWorld } from "../src/render/networld.ts";
 import { PlayerController } from "../src/render/player.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
 import { ParticleSystem } from "../src/render/particles.ts";
+import { createCharacterPanel, loadSettings, type SettingDef } from "./charpanel.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
@@ -119,13 +120,14 @@ addEventListener("resize", () => {
 
 // orbit camera around the player
 let camYaw = 0, camPitch = 0.25, camDist = 6;
+let mouseSensitivity = 1;
 let dragging = false;
 renderer.domElement.addEventListener("mousedown", () => (dragging = true));
 addEventListener("mouseup", () => (dragging = false));
 addEventListener("mousemove", (e) => {
   if (!dragging) return;
-  camYaw -= e.movementX * 0.005;
-  camPitch = Math.max(-0.3, Math.min(1.3, camPitch + e.movementY * 0.005));
+  camYaw -= e.movementX * 0.005 * mouseSensitivity;
+  camPitch = Math.max(-0.3, Math.min(1.3, camPitch + e.movementY * 0.005 * mouseSensitivity));
 });
 addEventListener("wheel", (e) => (camDist = Math.max(1.5, Math.min(40, camDist + e.deltaY * 0.01))));
 
@@ -174,6 +176,7 @@ async function openDats() {
     return out;
   };
   scene.add(netWorld.group);
+  loadSettings(settingDefs); // stored view distance, effect speed, field of view...
   sky = new SkyRenderer(assets, region);
   await sky.build();
   scene.background = null;
@@ -301,10 +304,12 @@ $("loginForm").addEventListener("submit", async (ev) => {
         else log(text, "c-system");
       },
       onError: (text) => log(text, "c-error"),
-      onInventory: () => renderInventory(),
+      onInventory: () => charPanel.render(),
       onObjectPickedUp: (g) => netWorld?.remove(g),
       onObjectParented: (o) => netWorld?.attach(o),
-      onVitals: (v) => renderVitals(v),
+      onVitals: (v) => { renderVitals(v); charPanel.render(); },
+      onCharacterData: () => charPanel.render(),
+      onAllegiance: () => charPanel.render(),
       onTargetHealth: (g, f) => { if (g === targetGuid) { targetHealth = f; renderTarget(); } },
       onCharacterList: showCharacters,
       onCharacterCreated: (result, _guid, name) => { loginStatus.textContent = result === "Ok" ? `created ${name}` : `create failed: ${result}`; },
@@ -397,7 +402,7 @@ async function onEnterWorld(guid: number) {
   log(`entered world as ${me?.name ?? guid.toString(16)}`);
   // objects that arrived before the player entry
   for (const o of client!.objects.values()) if (o.guid !== guid) netWorld!.create(o).then((e) => { if (e) e.root.userData.guid = o.guid; });
-  renderInventory();
+  charPanel.render();
 }
 
 function onObject(o: WorldObject) {
@@ -478,7 +483,8 @@ function sendChat(text: string) {
   else if (cmd === "hom" || cmd === "hometown") client.recall("hometown");
   else if (cmd === "pkarena") client.recall("pkarena");
   else if (cmd === "pklarena") client.recall("pklarena");
-  else if (cmd === "inv" || cmd === "i") toggleInventory();
+  else if (cmd === "inv" || cmd === "i") charPanel.toggle("items");
+  else if (cmd === "char" || cmd === "c") charPanel.toggle();
   else log(`unknown command /${cmd}`, "c-error");
 }
 function channelSay(channel: number, text: string) {
@@ -493,10 +499,11 @@ addEventListener("keydown", (e) => {
   if ((e.target as HTMLElement)?.tagName === "INPUT") return;
   if (!player) return;
   if (e.key === "Enter") { e.preventDefault(); $("chatin").focus(); }
-  else if (e.code === "KeyI") toggleInventory();
+  else if (e.code === "KeyI") charPanel.toggle("items");
+  else if (e.code === "KeyC") charPanel.toggle();
   else if (e.code === "Space") { e.preventDefault(); if (!e.repeat) player.startJumpCharge(); }
   else if (e.code === "KeyU" && targetGuid && client) client.use(targetGuid);
-  else if (e.key === "Escape") setTarget(null);
+  else if (e.key === "Escape") { if (charPanel.isOpen()) $("char").classList.remove("show"); else setTarget(null); }
 });
 
 addEventListener("keyup", (e) => {
@@ -536,9 +543,9 @@ function makeDraggable(id: string, handleSel?: string) {
     e.preventDefault();
   });
 }
-for (const [id, handle] of [["vitals"], ["target"], ["inv", "h3"], ["hud", "#chattabs"], ["jumpbar"], ["tools"]] as [string, string?][]) makeDraggable(id, handle);
+for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"]] as [string, string?][]) makeDraggable(id, handle);
 function resetUi() {
-  for (const id of ["vitals", "target", "inv", "hud", "jumpbar", "tools"]) {
+  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools"]) {
     try { localStorage.removeItem(PANEL_STORE + id); } catch { /* ignore */ }
     const el = $(id); el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; el.style.marginLeft = "";
   }
@@ -576,7 +583,7 @@ function blink() {
 }
 $("btnBlink").addEventListener("click", () => { blink(); (document.activeElement as HTMLElement | null)?.blur(); });
 $("btnClear").addEventListener("click", () => setTarget(null));
-$("btnGive").addEventListener("click", () => { toggleInventory(true); });
+$("btnGive").addEventListener("click", () => charPanel.toggle("items"));
 let downX = 0, downY = 0;
 renderer.domElement.addEventListener("mousedown", (e: MouseEvent) => { downX = e.clientX; downY = e.clientY; });
 renderer.domElement.addEventListener("click", (e: MouseEvent) => {
@@ -594,48 +601,41 @@ renderer.domElement.addEventListener("click", (e: MouseEvent) => {
 });
 
 // ---------- inventory ----------
-let invSelected: number | null = null;
+// ---------- character panel (doll, attributes, skills, spells, inventory, allegiance, settings) ----------
+
 const iconCache = new Map<number, Promise<string | null>>();
+/** Decoded icon for a texture id, as a data URL (cached). */
 function icon(id: number): Promise<string | null> {
   let p = iconCache.get(id);
   if (!p) { p = assets ? iconDataUrl(assets, id) : Promise.resolve(null); iconCache.set(id, p); }
   return p;
 }
-function toggleInventory(show?: boolean) {
-  const el = $("inv");
-  el.classList.toggle("show", show ?? !el.classList.contains("show"));
-  if (el.classList.contains("show")) renderInventory();
-}
-async function renderInventory() {
-  if (!client || !$("inv").classList.contains("show")) return;
-  const list = $("invList");
-  const items = client.inventory().sort((a, b) => (a.wielder ? 0 : 1) - (b.wielder ? 0 : 1) || a.name.localeCompare(b.name));
-  list.innerHTML = "";
-  for (const o of items) {
-    const row = document.createElement("div");
-    row.className = "item" + (o.guid === invSelected ? " sel" : "");
-    const img = document.createElement("img");
-    img.alt = "";
-    icon(o.icon).then((u) => { if (u) img.src = u; });
-    const name = document.createElement("span");
-    name.textContent = o.stackSize > 1 ? `${o.name} ×${o.stackSize}` : o.name;
-    row.append(img, name);
-    if (o.wielder) { const eq = document.createElement("span"); eq.className = "eq"; eq.textContent = "(worn)"; row.append(eq); }
-    row.onclick = () => { invSelected = o.guid; renderInventory(); };
-    row.ondblclick = () => client!.use(o.guid);
-    list.appendChild(row);
-  }
-  if (!items.length) list.textContent = "(empty)";
-}
-$("invUse").addEventListener("click", () => { if (invSelected && client) client.use(invSelected); });
-$("invDrop").addEventListener("click", () => { if (invSelected && client) client.drop(invSelected); });
-$("invGive").addEventListener("click", () => {
-  if (!client || !invSelected) return;
-  if (!targetGuid) { log("select a target first (click an NPC)", "c-error"); return; }
-  const item = client.objects.get(invSelected);
-  client.give(targetGuid, invSelected, item?.stackSize ?? 1);
-  log(`giving ${item?.name ?? "item"} to ${client.objects.get(targetGuid)?.name ?? "target"}...`, "c-system");
+
+
+/** client-side settings; each is stored under its key and applied on load */
+const settingDefs: SettingDef[] = [
+  { key: "fxspeed", label: "Effect speed", kind: "range", min: 0.25, max: 2, step: 0.05, hint: "speed of spell and portal particles",
+    get: () => particles?.timeScale ?? 1, set: (v) => { if (particles) particles.timeScale = Number(v); } },
+  { key: "viewdist", label: "View distance", kind: "range", min: 2, max: 8, step: 1, hint: "landblocks of terrain drawn around you",
+    get: () => streamer?.terrainRadius ?? 5, set: (v) => { if (streamer) { streamer.terrainRadius = Number(v); streamer.update(player?.pos.x ?? 0, player?.pos.y ?? 0); } } },
+  { key: "detaildist", label: "Detail distance", kind: "range", min: 1, max: 4, step: 1, hint: "landblocks with buildings, scenery and interiors",
+    get: () => streamer?.radius ?? 2, set: (v) => { if (streamer) { streamer.radius = Number(v); streamer.update(player?.pos.x ?? 0, player?.pos.y ?? 0); } } },
+  { key: "fov", label: "Field of view", kind: "range", min: 50, max: 100, step: 1,
+    get: () => camera.fov, set: (v) => { camera.fov = Number(v); camera.updateProjectionMatrix(); } },
+  { key: "sensitivity", label: "Mouse sensitivity", kind: "range", min: 0.2, max: 3, step: 0.1,
+    get: () => mouseSensitivity, set: (v) => { mouseSensitivity = Number(v); } },
+  { key: "timestamps", label: "Chat timestamps", kind: "toggle", get: () => showTimestamps, set: (v) => { showTimestamps = !!v; } },
+];
+
+const charPanel = createCharacterPanel({
+  client: () => client,
+  assets: () => assets,
+  icon,
+  log,
+  targetGuid: () => targetGuid,
+  settings: settingDefs,
 });
+document.addEventListener("acweb-resetui", () => resetUi());
 
 // ---------- frame loop ----------
 let last = performance.now();

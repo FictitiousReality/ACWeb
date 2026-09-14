@@ -73,8 +73,7 @@ export const GameActionType = {
   PingRequest: 0x1e9,
   Jump: 0xf61b,
   MoveToState: 0xf61c,
-  AutonomousPosition: 0xf753,
-} as const;
+  AutonomousPosition: 0xf753, AllegianceUpdateRequest: 0x001f } as const;
 
 export interface Position {
   cell: number;
@@ -534,6 +533,13 @@ export function buildAutonomousPosition(pos: Position, seq: ObjectSequences, con
   return w.toBytes();
 }
 
+/** A game action whose whole payload is one u32 (allegiance update request, ...). */
+export function gameActionU32(type: number, value: number): Uint8Array {
+  const w = gameAction(type);
+  w.u32(value);
+  return w.toBytes();
+}
+
 export function buildJump(extent: number, velocity: [number, number, number], seq: ObjectSequences): Uint8Array {
   const w = gameAction(GameActionType.Jump);
   w.f32(extent).f32(velocity[0]).f32(velocity[1]).f32(velocity[2]);
@@ -681,9 +687,24 @@ export function buildTurbineChat(channel: number, text: string, senderGuid: numb
 
 export interface AttributeInfo { ranks: number; starting: number; xp: number }
 export interface VitalInfo extends AttributeInfo { current: number }
+export interface SkillInfo {
+  /** points raised with skill credits */
+  ranks: number;
+  /** Untrained 1, Trained 2, Specialized 3 (Undef 0) */
+  advancement: number;
+  xpSpent: number;
+  /** the training bonus from character creation */
+  initLevel: number;
+}
 export interface PlayerDescription {
   attributes: Partial<Record<"strength" | "endurance" | "quickness" | "coordination" | "focus" | "self", AttributeInfo>>;
   vitals: Partial<Record<"health" | "stamina" | "mana", VitalInfo>>;
+  /** the character's property tables (PropertyInt 25 = level, 24 = skill credits; PropertyInt64 1 = total xp, 2 = unassigned) */
+  properties: { int: Map<number, number>; int64: Map<number, number>; bool: Map<number, boolean>; float: Map<number, number>; string: Map<number, string> };
+  /** by skill id (see the dat SkillTable for names and formulas) */
+  skills: Map<number, SkillInfo>;
+  /** known spell ids */
+  spells: number[];
 }
 
 /**
@@ -694,18 +715,22 @@ export interface PlayerDescription {
 export function parsePlayerDescription(r: BinReader): PlayerDescription {
   const flags = r.u32();
   r.u32(); // weenie type
+  const out: PlayerDescription = {
+    attributes: {}, vitals: {}, skills: new Map(), spells: [],
+    properties: { int: new Map(), int64: new Map(), bool: new Map(), float: new Map(), string: new Map() },
+  };
+  const p = out.properties;
   const table = (each: () => void) => { const n = r.u16(); r.u16(); for (let i = 0; i < n; i++) each(); };
-  if (flags & 0x0001) table(() => { r.u32(); r.i32(); });          // int32
-  if (flags & 0x0080) table(() => { r.u32(); r.u32(); r.u32(); }); // int64
-  if (flags & 0x0002) table(() => { r.u32(); r.u32(); });          // bool
-  if (flags & 0x0004) table(() => { r.u32(); r.f64(); });          // double
-  if (flags & 0x0010) table(() => { r.u32(); readString16L(r); }); // string
+  if (flags & 0x0001) table(() => { const k = r.u32(); p.int.set(k, r.i32()); });
+  if (flags & 0x0080) table(() => { const k = r.u32(); const lo = r.u32(), hi = r.u32(); p.int64.set(k, hi * 2 ** 32 + lo); });
+  if (flags & 0x0002) table(() => { const k = r.u32(); p.bool.set(k, r.u32() !== 0); });
+  if (flags & 0x0004) table(() => { const k = r.u32(); p.float.set(k, r.f64()); });
+  if (flags & 0x0010) table(() => { const k = r.u32(); p.string.set(k, readString16L(r)); });
   if (flags & 0x0008) table(() => { r.u32(); r.u32(); });          // data id
   if (flags & 0x0040) table(() => { r.u32(); r.u32(); });          // instance id
   if (flags & 0x0020) table(() => { r.u32(); for (let i = 0; i < 8; i++) r.u32(); }); // position: landblock, xyz, quaternion
   const vectorFlags = r.u32();
   r.u32(); // has health
-  const out: PlayerDescription = { attributes: {}, vitals: {} };
   if (vectorFlags & 0x0001) {
     const af = r.u32();
     const attr = (): AttributeInfo => ({ ranks: r.u32(), starting: r.u32(), xp: r.u32() });
@@ -720,5 +745,91 @@ export function parsePlayerDescription(r: BinReader): PlayerDescription {
     if (af & 0x080) out.vitals.stamina = vital();
     if (af & 0x100) out.vitals.mana = vital();
   }
+  if (vectorFlags & 0x0002) { // skills
+    const n = r.u16(); r.u16();
+    for (let i = 0; i < n; i++) {
+      const id = r.u32(), ranks = r.u16();
+      r.u16(); // always 1
+      const advancement = r.u32(), xpSpent = r.u32(), initLevel = r.u32();
+      r.u32(); // resistance of last check
+      r.f64(); // last time used
+      out.skills.set(id, { ranks, advancement, xpSpent, initLevel });
+    }
+  }
+  if (vectorFlags & 0x0100) { // spells (enchantments and character options follow; not read)
+    const n = r.u16(); r.u16();
+    for (let i = 0; i < n; i++) { out.spells.push(r.u32()); r.f32(); }
+  }
   return out;
+}
+
+// ---------- allegiance (GameEvent 0x0020 AllegianceUpdate / 0x027C AllegianceInfoResponse) ----------
+
+export interface AllegianceMember {
+  guid: number;
+  name: string;
+  /** who this member is sworn to (0 for the monarch) */
+  patronGuid: number;
+  rank: number;
+  level: number;
+  loyalty: number;
+  leadership: number;
+  online: boolean;
+  /** experience passed up but not yet tithed */
+  cpCached: number;
+  cpTithed: number;
+  gender: number;
+  heritage: number;
+}
+export interface AllegianceProfile {
+  totalMembers: number;
+  totalVassals: number;
+  name: string;
+  motd: string;
+  motdSetBy: string;
+  chatRoomId: number;
+  locked: boolean;
+  officerTitles: string[];
+  monarch: AllegianceMember | null;
+  /** patron, self and vassals, as sent */
+  members: AllegianceMember[];
+}
+
+function parseAllegianceMember(r: BinReader, patronGuid: number): AllegianceMember {
+  const guid = r.u32();
+  const cpCached = r.u32(), cpTithed = r.u32();
+  const bitfield = r.u32();
+  const gender = r.u8(), heritage = r.u8();
+  const rank = r.u16();
+  const level = bitfield & 0x8 ? r.u32() : 0;
+  const loyalty = r.u16(), leadership = r.u16();
+  if (bitfield & 0x4) { r.u32(); r.u32(); } else { r.u32(); r.u32(); } // time online / allegiance age (u64 when absent)
+  const name = readString16L(r);
+  return { guid, name, patronGuid, rank, level, loyalty, leadership, online: (bitfield & 0x1) !== 0, cpCached, cpTithed, gender, heritage };
+}
+
+export function parseAllegianceProfile(r: BinReader): AllegianceProfile {
+  const totalMembers = r.u32(), totalVassals = r.u32();
+  const recordCount = r.u16();
+  r.u16(); // version (0x000B)
+  const officers = r.u16(); r.u16();
+  for (let i = 0; i < officers; i++) { r.u32(); r.u32(); }
+  const titleCount = r.u32();
+  const officerTitles: string[] = [];
+  for (let i = 0; i < titleCount; i++) officerTitles.push(readString16L(r));
+  r.u32(); r.u32(); r.u32(); r.u32(); // monarch / spokesman broadcast times and counts
+  const motd = readString16L(r), motdSetBy = readString16L(r);
+  const chatRoomId = r.u32();
+  r.u32(); for (let i = 0; i < 7; i++) r.f32(); // bind point: cell, position, rotation
+  const name = readString16L(r);
+  r.u32(); // name last set
+  const locked = r.u32() !== 0;
+  r.u32(); // approved vassal
+  const monarch = recordCount > 0 ? parseAllegianceMember(r, 0) : null;
+  const members: AllegianceMember[] = [];
+  for (let i = 1; i < recordCount; i++) {
+    const patron = r.u32();
+    members.push(parseAllegianceMember(r, patron));
+  }
+  return { totalMembers, totalVassals, name, motd, motdSetBy, chatRoomId, locked, officerTitles, monarch, members };
 }

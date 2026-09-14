@@ -11,12 +11,14 @@ import {
   buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
   buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote,
   buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
-  parsePlayerDescription, buildJump,
+  parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
+  type AllegianceProfile, type AllegianceMember, type SkillInfo,
 } from "./messages.ts";
 
 export interface VitalPair { current: number; max: number }
+export type { AllegianceProfile, AllegianceMember, SkillInfo };
 export interface Vitals { health: VitalPair; stamina: VitalPair; mana: VitalPair }
 
 export interface WorldObject {
@@ -79,6 +81,10 @@ export interface ClientEvents {
   onObjectParented?(obj: WorldObject): void;
   /** our health / stamina / mana changed (current or max) */
   onVitals?(v: Vitals): void;
+  /** attributes, skills or the spellbook changed (also fired once after login) */
+  onCharacterData?(): void;
+  /** our allegiance profile arrived */
+  onAllegiance?(a: AllegianceProfile | null): void;
   /** the server reports a creature's health as a fraction (selected target) */
   onTargetHealth?(guid: number, fraction: number): void;
   onError?(text: string): void;
@@ -224,6 +230,19 @@ export class GameClient {
 
   /** attributes (starting + ranks) and vitals, from the login description and later updates */
   attributes = { strength: 0, endurance: 0, quickness: 0, coordination: 0, focus: 0, self: 0 };
+  /** skills by skill id; ranks + initLevel plus the dat formula give the effective value */
+  skills = new Map<number, SkillInfo>();
+  /** known spell ids (the dat spell table has names and icons) */
+  spells: number[] = [];
+  /** character properties from the login description (int 25 = level, int64 1 = total xp) */
+  properties = { int: new Map<number, number>(), int64: new Map<number, number>(), bool: new Map<number, boolean>(), float: new Map<number, number>(), string: new Map<number, string>() };
+  /** our allegiance, once the server sends it (null when we are in none) */
+  allegiance: AllegianceProfile | null = null;
+
+  /** Ask the server for the allegiance panel data. */
+  requestAllegianceUpdate() {
+    this.send(gameActionU32(GameActionType.AllegianceUpdateRequest, 1), Group.Weenie);
+  }
   private vitalBase = { health: { ranks: 0, starting: 0, current: 0 }, stamina: { ranks: 0, starting: 0, current: 0 }, mana: { ranks: 0, starting: 0, current: 0 } };
   vitals: Vitals = { health: { current: 0, max: 0 }, stamina: { current: 0, max: 0 }, mana: { current: 0, max: 0 } };
 
@@ -348,12 +367,21 @@ export class GameClient {
         if (key) { this.vitalBase[key] = { ranks, starting, current }; this.recomputeVitals(); }
         break;
       }
+      case 0x02dd: { // PrivateUpdateSkill
+        r.u8();
+        const id = r.u32(), ranks = r.u16();
+        r.u16(); // adjust pp
+        const advancement = r.u32(), xpSpent = r.u32(), initLevel = r.u32();
+        this.skills.set(id, { ranks, advancement, xpSpent, initLevel });
+        this.events.onCharacterData?.();
+        break;
+      }
       case 0x02e3: { // PrivateUpdateAttribute: ranks, starting, xp
         r.u8();
         const attr = r.u32(), ranks = r.u32(), starting = r.u32();
         const names = ["", "strength", "endurance", "quickness", "coordination", "focus", "self"] as const;
         const key = names[attr];
-        if (key) { this.attributes[key] = ranks + starting; this.recomputeVitals(); }
+        if (key) { this.attributes[key] = ranks + starting; this.recomputeVitals(); this.events.onCharacterData?.(); }
         break;
       }
       case Opcode.PlayEffect: {
@@ -523,6 +551,15 @@ export class GameClient {
     return !!pack && pack.container === this.playerGuid;
   }
 
+  private readAllegiance(r: BinReader) {
+    try {
+      this.allegiance = parseAllegianceProfile(r);
+      this.events.onAllegiance?.(this.allegiance);
+    } catch (e) {
+      this.log(`allegiance parse failed: ${(e as Error).message}`);
+    }
+  }
+
   private handleGameEvent(type: number, r: BinReader) {
     switch (type) {
       case 0x0004: // PopupString
@@ -591,10 +628,36 @@ export class GameClient {
           const d = parsePlayerDescription(r);
           for (const [k, v] of Object.entries(d.attributes)) if (v) this.attributes[k as keyof typeof this.attributes] = v.ranks + v.starting;
           for (const [k, v] of Object.entries(d.vitals)) if (v) this.vitalBase[k as keyof typeof this.vitalBase] = { ranks: v.ranks, starting: v.starting, current: v.current };
+          this.skills = d.skills;
+          this.spells = d.spells;
+          this.properties = d.properties;
           this.recomputeVitals();
+          this.events.onCharacterData?.();
+          this.log(`character data: ${this.skills.size} skills, ${this.spells.length} spells`);
         } catch (e) {
           this.log(`player description parse failed: ${(e as Error).message}`);
         }
+        break;
+      }
+      case 0x0020: { // AllegianceUpdate: our rank, then the allegiance profile
+        r.u32(); // rank
+        this.readAllegiance(r);
+        break;
+      }
+      case 0x027c: { // AllegianceInfoResponse: the queried player, then their profile
+        r.u32();
+        this.readAllegiance(r);
+        break;
+      }
+      case 0x02c1: { // MagicUpdateSpell: a spell was learned
+        const spellId = r.u32();
+        if (!this.spells.includes(spellId)) { this.spells.push(spellId); this.events.onCharacterData?.(); }
+        break;
+      }
+      case 0x01a8: { // MagicRemoveSpell
+        const spellId = r.u32();
+        const i = this.spells.indexOf(spellId);
+        if (i >= 0) { this.spells.splice(i, 1); this.events.onCharacterData?.(); }
         break;
       }
       case 0x01c0: { // UpdateHealth: a creature's health fraction (the one we selected)

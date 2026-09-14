@@ -158,6 +158,8 @@ export interface SkillBase {
   category: number;
   chargenUse: number;
   minLevel: number;
+  /** attribute contribution: (attr1 [+ attr2]) / z, when x is non-zero */
+  formula: { w: number; x: number; y: number; z: number; attr1: number; attr2: number };
 }
 /** 0x0E000004: skill table keyed by skill id. */
 export function parseSkillTable(r: BinReader): Map<number, SkillBase> {
@@ -167,9 +169,10 @@ export function parseSkillTable(r: BinReader): Map<number, SkillBase> {
     const name = rr.pstring(); rr.align();
     const s: SkillBase = {
       description, name, iconId: rr.u32(), trainedCost: rr.i32(), specializedCost: rr.i32(), category: rr.u32(), chargenUse: rr.u32(), minLevel: rr.u32(),
+      formula: { w: 0, x: 0, y: 0, z: 1, attr1: 0, attr2: 0 },
     };
-    rr.skip(6 * 4); // formula
-    rr.skip(3 * 8); // bounds, learn mod
+    s.formula = { w: rr.u32(), x: rr.u32(), y: rr.u32(), z: rr.u32(), attr1: rr.u32(), attr2: rr.u32() };
+    rr.skip(3 * 8); // upper bound, lower bound, learn mod
     return s;
   });
 }

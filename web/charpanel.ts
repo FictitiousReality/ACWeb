@@ -1,0 +1,404 @@
+/**
+ * The character panel: paper doll, attributes, skills, spellbook, inventory,
+ * allegiance and client settings. Everything it shows comes from the server's
+ * player description and object list, plus names and icons from the dats.
+ */
+import type { GameClient, WorldObject, AllegianceProfile } from "../src/net/client.ts";
+import type { Assets } from "../src/render/assets.ts";
+import { parseSkillTable, SKILLTABLE_ID, parseSpellTable, SPELLTABLE_ID } from "../src/dat/mod.ts";
+import type { SkillBase, SpellBase } from "../src/dat/mod.ts";
+
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+
+export type CharTab = "doll" | "attrs" | "skills" | "spells" | "items" | "alleg" | "settings";
+
+/** A client-side setting rendered as a control on the Settings tab and kept in localStorage. */
+export interface SettingDef {
+  key: string;
+  label: string;
+  hint?: string;
+  kind: "range" | "toggle";
+  min?: number;
+  max?: number;
+  step?: number;
+  get(): number | boolean;
+  set(v: number | boolean): void;
+}
+
+export interface CharPanelDeps {
+  client(): GameClient | null;
+  assets(): Assets | null;
+  icon(textureId: number): Promise<string | null>;
+  log(line: string, cls?: string): void;
+  targetGuid(): number | null;
+  settings: SettingDef[];
+}
+
+/** equipment slots in the order they are drawn, with the EquipMask bits each covers */
+const SLOTS: { key: string; label: string; mask: number }[] = [
+  { key: "head", label: "Head", mask: 0x00000001 },
+  { key: "neck", label: "Neck", mask: 0x00008000 },
+  { key: "chest", label: "Chest", mask: 0x00000202 },
+  { key: "abdomen", label: "Abdomen", mask: 0x00000404 },
+  { key: "upperarm", label: "Upper arms", mask: 0x00000808 },
+  { key: "lowerarm", label: "Lower arms", mask: 0x00001010 },
+  { key: "hands", label: "Hands", mask: 0x00000020 },
+  { key: "upperleg", label: "Upper legs", mask: 0x00002040 },
+  { key: "lowerleg", label: "Lower legs", mask: 0x00004080 },
+  { key: "feet", label: "Feet", mask: 0x00000100 },
+  { key: "cloak", label: "Cloak", mask: 0x08000000 },
+  { key: "wristl", label: "Left wrist", mask: 0x00010000 },
+  { key: "wristr", label: "Right wrist", mask: 0x00020000 },
+  { key: "fingerl", label: "Left finger", mask: 0x00040000 },
+  { key: "fingerr", label: "Right finger", mask: 0x00080000 },
+  { key: "weapon", label: "Weapon", mask: 0x02100000 },
+  { key: "shield", label: "Shield", mask: 0x00200000 },
+  { key: "missile", label: "Missile", mask: 0x00400000 },
+  { key: "ammo", label: "Ammunition", mask: 0x00800000 },
+  { key: "held", label: "Held", mask: 0x01000000 },
+  { key: "trinket", label: "Trinket", mask: 0x04000000 },
+];
+
+const SCHOOLS = ["", "War Magic", "Life Magic", "Item Enchantment", "Creature Enchantment", "Void Magic"];
+const ADVANCEMENT = ["Undeveloped", "Untrained", "Trained", "Specialized"];
+const SKILL_CATEGORIES = ["", "Combat", "Other", "Magic"];
+/** PropertyAttribute ids used by the skill formulas */
+const ATTR_BY_ID = ["", "strength", "endurance", "quickness", "coordination", "focus", "self"] as const;
+
+export function createCharacterPanel(deps: CharPanelDeps) {
+  let tab: CharTab = "doll";
+  let skillTable: Map<number, SkillBase> | null = null;
+  let spellTable: Map<number, SpellBase> | null = null;
+  let invSelected: number | null = null;
+  let spellFilter = "";
+
+  const panel = $("char");
+  const isOpen = () => panel.classList.contains("show");
+
+  async function tables() {
+    const a = deps.assets();
+    if (!a) return;
+    if (!skillTable) skillTable = await a.portal.get(SKILLTABLE_ID, parseSkillTable);
+    if (!spellTable) spellTable = await a.portal.get(SPELLTABLE_ID, parseSpellTable);
+  }
+
+  function setTab(t: CharTab) {
+    tab = t;
+    for (const b of panel.querySelectorAll<HTMLButtonElement>("#charTabs button[data-ctab]")) b.classList.toggle("active", b.dataset.ctab === t);
+    for (const p of panel.querySelectorAll<HTMLElement>(".cpane")) p.classList.toggle("active", p.id === `cp-${t}`);
+    render();
+  }
+
+  function toggle(t?: CharTab) {
+    const wantOpen = t !== undefined ? !(isOpen() && tab === t) : !isOpen();
+    panel.classList.toggle("show", wantOpen);
+    if (wantOpen) { if (t) setTab(t); else render(); }
+  }
+
+  /** An icon tile with a name, used by the doll, inventory and spellbook. */
+  function tile(textureId: number, label: string, cls = ""): HTMLElement {
+    const el = document.createElement("div");
+    el.className = `tile ${cls}`;
+    const img = document.createElement("img");
+    img.alt = "";
+    deps.icon(textureId).then((u) => { if (u) img.src = u; });
+    const span = document.createElement("span");
+    span.textContent = label;
+    el.append(img, span);
+    el.title = label;
+    return el;
+  }
+
+  function renderDoll() {
+    const c = deps.client();
+    const box = $("cp-doll");
+    box.innerHTML = "";
+    if (!c) { box.textContent = "not connected"; return; }
+    const worn = [...c.objects.values()].filter((o) => o.wielder === c.playerGuid);
+    const grid = document.createElement("div");
+    grid.className = "doll";
+    for (const slot of SLOTS) {
+      const item = worn.find((o) => (o.wieldedLocation & slot.mask) !== 0);
+      const cell = document.createElement("div");
+      cell.className = "slot" + (item ? " filled" : "");
+      const label = document.createElement("b");
+      label.textContent = slot.label;
+      cell.appendChild(label);
+      if (item) {
+        const t = tile(item.icon, item.name);
+        t.ondblclick = () => c.use(item.guid);
+        cell.appendChild(t);
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "tile empty";
+        cell.appendChild(empty);
+      }
+      grid.appendChild(cell);
+    }
+    box.appendChild(grid);
+    const note = document.createElement("p");
+    note.className = "note";
+    note.textContent = worn.length ? "Double-click an item to use or unequip it." : "Nothing equipped.";
+    box.appendChild(note);
+  }
+
+  function renderAttrs() {
+    const c = deps.client();
+    const box = $("cp-attrs");
+    box.innerHTML = "";
+    if (!c) { box.textContent = "not connected"; return; }
+    const me = c.objects.get(c.playerGuid);
+    const head = document.createElement("h4");
+    const level = c.properties.int.get(25);
+    head.textContent = `${me?.name ?? "You"}${level ? `  —  level ${level}` : ""}`;
+    box.appendChild(head);
+    const table = document.createElement("div");
+    table.className = "kv";
+    const row = (k: string, v: string) => {
+      const a = document.createElement("b"); a.textContent = k;
+      const b = document.createElement("span"); b.textContent = v;
+      table.append(a, b);
+    };
+    for (const [key, label] of [["strength", "Strength"], ["endurance", "Endurance"], ["coordination", "Coordination"], ["quickness", "Quickness"], ["focus", "Focus"], ["self", "Self"]] as const) {
+      row(label, String(c.attributes[key]));
+    }
+    row("Health", `${c.vitals.health.current} / ${c.vitals.health.max}`);
+    row("Stamina", `${c.vitals.stamina.current} / ${c.vitals.stamina.max}`);
+    row("Mana", `${c.vitals.mana.current} / ${c.vitals.mana.max}`);
+    const xp = c.properties.int64.get(1), unspent = c.properties.int64.get(2);
+    if (xp !== undefined) row("Total experience", xp.toLocaleString());
+    if (unspent !== undefined) row("Unassigned experience", unspent.toLocaleString());
+    const credits = c.properties.int.get(24);
+    if (credits !== undefined) row("Skill credits", String(credits));
+    box.appendChild(table);
+  }
+
+  /** Effective skill value: training bonus + ranks + the attribute part of its dat formula. */
+  function skillValue(c: GameClient, id: number): number | null {
+    const info = c.skills.get(id), base = skillTable?.get(id);
+    if (!info || !base) return null;
+    let attr = 0;
+    if (base.formula.x !== 0) {
+      const a1 = ATTR_BY_ID[base.formula.attr1], a2 = ATTR_BY_ID[base.formula.attr2];
+      if (a1) attr += c.attributes[a1];
+      if (a2) attr += c.attributes[a2];
+      if (base.formula.z > 1) attr = Math.round(attr / base.formula.z);
+    }
+    return info.initLevel + info.ranks + attr;
+  }
+
+  function renderSkills() {
+    const c = deps.client();
+    const box = $("cp-skills");
+    box.innerHTML = "";
+    if (!c) { box.textContent = "not connected"; return; }
+    if (!skillTable) { box.textContent = "loading skill names..."; return; }
+    if (!c.skills.size) { box.textContent = "no skills yet (they arrive with the login description)"; return; }
+    const rows = [...c.skills.entries()]
+      .map(([id, info]) => ({ id, info, base: skillTable!.get(id) }))
+      .filter((r) => r.base && r.info.advancement > 1)
+      .sort((a, b) => (a.base!.category - b.base!.category) || a.base!.name.localeCompare(b.base!.name));
+    let category = -1;
+    const table = document.createElement("div");
+    table.className = "kv skills";
+    for (const r of rows) {
+      if (r.base!.category !== category) {
+        category = r.base!.category;
+        const h = document.createElement("h4");
+        h.textContent = SKILL_CATEGORIES[category] ?? "Skills";
+        h.className = "span2";
+        table.appendChild(h);
+      }
+      const name = document.createElement("b");
+      name.textContent = r.base!.name;
+      name.title = `${ADVANCEMENT[r.info.advancement] ?? ""}: ${r.base!.description}`;
+      const val = document.createElement("span");
+      const v = skillValue(c, r.id);
+      val.textContent = `${v ?? "?"}${r.info.advancement === 3 ? "  (specialized)" : ""}`;
+      if (r.info.advancement === 3) val.className = "spec";
+      table.append(name, val);
+    }
+    box.appendChild(table);
+    const untrained = [...c.skills.values()].filter((s) => s.advancement <= 1).length;
+    if (untrained) {
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = `${untrained} untrained skills not shown.`;
+      box.appendChild(note);
+    }
+  }
+
+  function renderSpells() {
+    const c = deps.client();
+    const box = $("cp-spells");
+    box.innerHTML = "";
+    if (!c) { box.textContent = "not connected"; return; }
+    if (!spellTable) { box.textContent = "loading spell names..."; return; }
+    if (!c.spells.length) { box.textContent = "your spellbook is empty"; return; }
+    const search = document.createElement("input");
+    search.placeholder = `filter ${c.spells.length} spells...`;
+    search.value = spellFilter;
+    search.oninput = () => { spellFilter = search.value; renderSpells(); (($("cp-spells").querySelector("input")) as HTMLInputElement)?.focus(); };
+    box.appendChild(search);
+    const spells = c.spells
+      .map((id) => spellTable!.get(id))
+      .filter((s): s is SpellBase => !!s && (!spellFilter || s.name.toLowerCase().includes(spellFilter.toLowerCase())))
+      .sort((a, b) => (a.school - b.school) || a.name.localeCompare(b.name));
+    let school = -1;
+    for (const s of spells) {
+      if (s.school !== school) {
+        school = s.school;
+        const h = document.createElement("h4");
+        h.textContent = SCHOOLS[school] ?? `School ${school}`;
+        box.appendChild(h);
+      }
+      const t = tile(s.iconId, s.name, "spell");
+      t.title = `${s.name}\n${s.description}\nMana ${s.baseMana}${s.duration ? `, lasts ${Math.round(s.duration / 60)} min` : ""}`;
+      box.appendChild(t);
+    }
+    if (!spells.length) box.appendChild(Object.assign(document.createElement("p"), { className: "note", textContent: "no spells match" }));
+  }
+
+  function renderItems() {
+    const c = deps.client();
+    const box = $("cp-itemlist");
+    box.innerHTML = "";
+    if (!c) { box.textContent = "not connected"; return; }
+    const items = c.inventory().sort((a, b) => (a.wielder ? 0 : 1) - (b.wielder ? 0 : 1) || a.name.localeCompare(b.name));
+    for (const o of items) {
+      const row = document.createElement("div");
+      row.className = "item" + (o.guid === invSelected ? " sel" : "");
+      const img = document.createElement("img");
+      img.alt = "";
+      deps.icon(o.icon).then((u) => { if (u) img.src = u; });
+      const name = document.createElement("span");
+      name.textContent = o.stackSize > 1 ? `${o.name} ×${o.stackSize}` : o.name;
+      row.append(img, name);
+      if (o.wielder) { const eq = document.createElement("span"); eq.className = "eq"; eq.textContent = "(worn)"; row.append(eq); }
+      row.onclick = () => { invSelected = o.guid; renderItems(); };
+      row.ondblclick = () => c.use(o.guid);
+      box.appendChild(row);
+    }
+    if (!items.length) box.textContent = "(empty)";
+  }
+
+  function renderAllegiance(a: AllegianceProfile | null) {
+    const box = $("cp-alleg");
+    box.innerHTML = "";
+    const c = deps.client();
+    const refresh = document.createElement("button");
+    refresh.textContent = "Refresh";
+    refresh.onclick = () => { c?.requestAllegianceUpdate(); deps.log("asked the server for allegiance data", "c-system"); };
+    if (!a || !a.totalMembers) {
+      box.append(Object.assign(document.createElement("p"), { className: "note", textContent: a ? "You are not in an allegiance." : "No allegiance data yet." }), refresh);
+      return;
+    }
+    const h = document.createElement("h4");
+    h.textContent = a.name || "(unnamed allegiance)";
+    box.appendChild(h);
+    const kv = document.createElement("div");
+    kv.className = "kv";
+    const row = (k: string, v: string) => { const x = document.createElement("b"); x.textContent = k; const y = document.createElement("span"); y.textContent = v; kv.append(x, y); };
+    row("Members", String(a.totalMembers));
+    row("Your vassals", String(a.totalVassals));
+    if (a.monarch) row("Monarch", `${a.monarch.name}${a.monarch.online ? " (online)" : ""}`);
+    if (a.locked) row("Locked", "yes");
+    box.appendChild(kv);
+    if (a.motd) {
+      const m = document.createElement("p");
+      m.className = "motd";
+      m.textContent = `"${a.motd}"${a.motdSetBy ? ` — ${a.motdSetBy}` : ""}`;
+      box.appendChild(m);
+    }
+    if (a.members.length) {
+      const list = document.createElement("div");
+      list.className = "kv";
+      for (const m of a.members) {
+        const n = document.createElement("b");
+        n.textContent = m.name + (m.online ? " •" : "");
+        const d = document.createElement("span");
+        d.textContent = `rank ${m.rank}${m.level ? `, level ${m.level}` : ""}`;
+        list.append(n, d);
+      }
+      box.append(Object.assign(document.createElement("h4"), { textContent: "Patron and vassals" }), list);
+    }
+    box.appendChild(refresh);
+  }
+
+  function renderSettings() {
+    const box = $("cp-settings");
+    box.innerHTML = "";
+    for (const s of deps.settings) {
+      const wrap = document.createElement("label");
+      wrap.className = "setting";
+      const name = document.createElement("b");
+      name.textContent = s.label;
+      const value = document.createElement("i");
+      const input = document.createElement("input");
+      if (s.kind === "toggle") {
+        input.type = "checkbox";
+        input.checked = !!s.get();
+        input.onchange = () => { s.set(input.checked); saveSetting(s.key, input.checked); };
+      } else {
+        input.type = "range";
+        input.min = String(s.min ?? 0); input.max = String(s.max ?? 1); input.step = String(s.step ?? 0.1);
+        input.value = String(s.get());
+        value.textContent = String(s.get());
+        input.oninput = () => { const v = Number(input.value); value.textContent = String(v); s.set(v); saveSetting(s.key, v); };
+      }
+      wrap.append(name, input, value);
+      if (s.hint) wrap.append(Object.assign(document.createElement("small"), { textContent: s.hint }));
+      box.appendChild(wrap);
+    }
+    const reset = document.createElement("button");
+    reset.textContent = "Reset panel positions";
+    reset.onclick = () => { document.dispatchEvent(new CustomEvent("acweb-resetui")); };
+    box.appendChild(reset);
+  }
+
+  function render() {
+    if (!isOpen()) return;
+    tables().then(() => {
+      if (tab === "doll") renderDoll();
+      else if (tab === "attrs") renderAttrs();
+      else if (tab === "skills") renderSkills();
+      else if (tab === "spells") renderSpells();
+      else if (tab === "items") renderItems();
+      else if (tab === "alleg") renderAllegiance(deps.client()?.allegiance ?? null);
+      else renderSettings();
+    });
+  }
+
+  for (const b of panel.querySelectorAll<HTMLButtonElement>("#charTabs button[data-ctab]")) {
+    b.onclick = () => setTab(b.dataset.ctab as CharTab);
+  }
+  $("charClose").onclick = () => panel.classList.remove("show");
+  $("itemUse").onclick = () => { if (invSelected) deps.client()?.use(invSelected); };
+  $("itemDrop").onclick = () => { if (invSelected) deps.client()?.drop(invSelected); };
+  $("itemGive").onclick = () => {
+    const c = deps.client(), target = deps.targetGuid();
+    if (!c || !invSelected) return;
+    if (!target) { deps.log("select a target first (click an NPC)", "c-error"); return; }
+    const item = c.objects.get(invSelected);
+    c.give(target, invSelected, item?.stackSize ?? 1);
+    deps.log(`giving ${item?.name ?? "item"} to ${c.objects.get(target)?.name ?? "target"}...`, "c-system");
+  };
+
+  return { toggle, setTab, render, isOpen, get tab() { return tab; } };
+}
+
+const SETTING_STORE = "acweb.set.";
+function saveSetting(key: string, v: number | boolean) {
+  try { localStorage.setItem(SETTING_STORE + key, JSON.stringify(v)); } catch { /* storage unavailable */ }
+}
+/** Apply every stored setting; call once the world is up. */
+export function loadSettings(defs: SettingDef[]) {
+  for (const s of defs) {
+    try {
+      const raw = localStorage.getItem(SETTING_STORE + s.key);
+      if (raw !== null) s.set(JSON.parse(raw));
+    } catch { /* ignore bad values */ }
+  }
+}
+
+export type { WorldObject };

@@ -14,3 +14,4 @@ export * from "./records/motion.ts";
 export * from "./motionenums.ts";
 export * from "./records/chargen.ts";
 export * from "./records/particles.ts";
+export * from "./records/spells.ts";

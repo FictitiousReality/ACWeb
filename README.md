@@ -58,6 +58,10 @@ check the rules of any server before connecting to it.
 - **Collision**: walls, building interiors, scenery, closed doors and static
   server objects block the player (horizontal rays at knee and chest height,
   sliding along the wall); `/noclip` toggles walking through walls.
+- **Character panel**: paper doll of equipped items, attributes and vitals,
+  trained skills with their effective values, the spellbook with icons and a
+  filter, inventory, allegiance (members, monarch, motd, patron and vassals)
+  and client settings.
 - **Vitals and combat feedback**: health, stamina and mana bars from the
   login description and live updates; a Combat chat tab for damage and spell
   messages; the selected target's health percentage.
@@ -152,10 +156,15 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Click an object | target it (name and Use / Give buttons appear) |
 | Space (hold) | charge a jump: a bar fills over a second; release to jump with that power (jump height uses a Jump skill pinned at 750 for now) |
 | U | use the target |
-| I | open or close the inventory |
+| C | open or close the character panel |
+| I | the character panel's Inventory tab |
 | Enter | focus the chat box; Escape leaves it or clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
+The character panel (C) has tabs for the paper doll, attributes, skills,
+spellbook, inventory, allegiance and client settings. Settings (effect speed,
+view and detail distance, field of view, mouse sensitivity, chat timestamps)
+are remembered in the browser.
 The controls and commands are listed here rather than on screen. Every panel
 (vitals, target, inventory, chat, jump bar, Blink button) can be
 dragged by its background, header or the ⋮⋮ grip; positions are remembered in
@@ -181,7 +190,8 @@ Type these in the chat box.
 | `/lfg text` | LFG channel |
 | `/a text`, `/allegiance text` | Allegiance channel (when you are in one) |
 | `/use` | use the current target |
-| `/inv`, `/i` | toggle the inventory panel |
+| `/inv`, `/i` | character panel, Inventory tab |
+| `/char`, `/c` | character panel |
 | `/ls`, `/lifestone` | recall to your lifestone |
 | `/mp`, `/marketplace` | recall to the Marketplace |
 | `/house`, `/mansion`, `/hom`, `/hometown` | house, mansion and hometown recalls |

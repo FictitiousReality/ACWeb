@@ -32,28 +32,30 @@
     .c-broadcast { color: #ffd27a; } .c-emote { color: #b8e0a0; } .c-error { color: #ff8b8b; } .c-debug { color: #777; }
     .c-combat { color: #ffb070; } .c-magic { color: #a0c8ff; } .c-you { color: #ffffff; font-weight: 600; }
     .c-general { color: #c8e6ff; } .c-trade { color: #ffe0a8; } .c-lfg { color: #d0ffd0; } .c-allegiance { color: #ffc8f0; }
-    #target { position: fixed; top: 34px; left: 10px; z-index: 3; background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 6px; display: none; }
+    #target { position: fixed; top: 108px; left: 10px; z-index: 3; background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 6px; display: none; cursor: move; }
     #target.show { display: block; }
     #target button { font: inherit; margin-left: 6px; }
-    #inv { position: fixed; top: 34px; right: 10px; width: 300px; max-height: 70vh; overflow-y: auto; z-index: 3; background: rgba(0,0,0,.65); padding: 8px; border-radius: 6px; display: none; }
+    #inv { position: fixed; top: 40px; right: 10px; width: 300px; max-height: 70vh; overflow-y: auto; z-index: 3; background: rgba(0,0,0,.65); padding: 8px; border-radius: 6px; display: none; }
     #inv.show { display: block; }
-    #inv h3 { margin: 0 0 6px; font-size: 13px; }
+    #inv h3 { margin: 0 0 6px; font-size: 13px; cursor: move; }
     .item { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
     .item:hover { background: rgba(255,255,255,.08); } .item.sel { background: rgba(120,160,255,.25); }
     .item img { width: 24px; height: 24px; image-rendering: pixelated; }
     .item .eq { opacity: .6; font-size: 11px; }
     #invActions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
     #invActions button { font: inherit; }
-    #vitals { position: fixed; top: 30px; left: 10px; z-index: 3; width: 200px; display: none; font-size: 11px; }
+    #vitals { position: fixed; top: 34px; left: 10px; z-index: 3; width: 200px; display: none; font-size: 11px; cursor: move; }
     #vitals .vital { position: relative; height: 16px; margin-bottom: 4px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden; }
     #vitals .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transition: width .25s; }
     #vitals .hp { background: #b3302f; } #vitals .st { background: #b08a1e; } #vitals .mn { background: #2f5fb3; }
     #vitals span, #vitals em { position: relative; line-height: 16px; padding: 0 6px; color: #fff; text-shadow: 0 0 2px #000; font-style: normal; }
     #vitals em { float: right; }
-    #jumpbar { position: fixed; left: 50%; bottom: 120px; width: 220px; height: 10px; margin-left: -110px; background: rgba(0,0,0,.6); border: 1px solid #888; border-radius: 3px; display: none; z-index: 3; }
+    #jumpbar { position: fixed; left: 50%; top: 40px; width: 220px; height: 10px; margin-left: -110px; background: rgba(0,0,0,.6); border: 1px solid #888; border-radius: 3px; display: none; z-index: 3; }
     #jumpbar div { height: 100%; width: 0; background: #e0c040; transition: width .05s linear; }
     #status { position: fixed; top: 8px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; opacity: .85; z-index: 3; white-space: pre; }
-    #tools { position: fixed; top: 8px; right: 10px; z-index: 3; }
+    #tools { position: fixed; top: 8px; right: 10px; z-index: 3; background: rgba(0,0,0,.35); padding: 3px 4px; border-radius: 6px; cursor: move; white-space: nowrap; }
+    .grip { display: inline-block; color: #999; padding: 0 6px; cursor: move; user-select: none; font-size: 12px; }
+    #chattabs { cursor: move; }
     #help { position: fixed; right: 10px; bottom: 8px; opacity: .6; z-index: 3; text-align: right; font-size: 12px; }
     .err { color: #f77; }
   </style>
@@ -91,11 +93,11 @@
     <div class="vital"><div class="bar st"></div><span>Stamina</span><em id="vStamina">-</em></div>
     <div class="vital"><div class="bar mn"></div><span>Mana</span><em id="vMana">-</em></div>
   </div>
-  <div id="tools"><button id="btnBlink" type="button" title="jump one landblock in the direction you face (/blink)">Blink ▶</button></div>
+  <div id="tools"><span class="grip" title="drag">⋮⋮</span><button id="btnBlink" type="button" title="jump one landblock in the direction you face (/blink)">Blink ▶</button></div>
   <div id="target"><span id="targetName"></span><button id="btnUse" type="button">Use (U)</button><button id="btnGive" type="button">Give item</button><button id="btnClear" type="button">×</button></div>
   <div id="inv"><h3>Inventory (I)</h3><div id="invList"></div><div id="invActions"><button id="invUse" type="button">Use</button><button id="invGive" type="button">Give to target</button><button id="invDrop" type="button">Drop</button></div></div>
   <div id="hud">
-    <div id="chattabs">
+    <div id="chattabs"><span class="grip" title="drag the chat window">⋮⋮</span>
       <button type="button" data-tab="all" class="active">All<span class="badge"></span></button>
       <button type="button" data-tab="chat">Chat<span class="badge"></span></button>
       <button type="button" data-tab="general">General<span class="badge"></span></button>

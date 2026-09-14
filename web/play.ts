@@ -452,6 +452,7 @@ function sendChat(text: string) {
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
   else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
   else if (cmd === "blink") blink();
+  else if (cmd === "resetui") resetUi();
   else if (cmd === "time") {
     if (sky) {
       const gt = sky.gameTime, tod = sky.timeOfDay;
@@ -501,6 +502,48 @@ addEventListener("keydown", (e) => {
 addEventListener("keyup", (e) => {
   if (e.code === "Space" && player && (e.target as HTMLElement)?.tagName !== "INPUT") player.releaseJump();
 });
+
+// ---------- movable panels ----------
+// Drag a panel by its background, header or grip (never from a button, input or the chat text);
+// positions are remembered per panel in localStorage. /resetui restores the defaults.
+const PANEL_STORE = "acweb.ui.";
+function makeDraggable(id: string, handleSel?: string) {
+  const el = $(id);
+  const handle = handleSel ? el.querySelector<HTMLElement>(handleSel) ?? el : el;
+  try {
+    const saved = localStorage.getItem(PANEL_STORE + id);
+    if (saved) { const { left, top } = JSON.parse(saved); el.style.left = `${left}px`; el.style.top = `${top}px`; el.style.right = "auto"; el.style.bottom = "auto"; el.style.marginLeft = "0"; }
+  } catch { /* storage unavailable */ }
+  handle.addEventListener("pointerdown", (e: PointerEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("button, input, select, textarea, a, .chatlog, .inv-item")) return;
+    if (e.button !== 0) return;
+    const rect = el.getBoundingClientRect();
+    const offX = e.clientX - rect.left, offY = e.clientY - rect.top;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 3) return;
+      moved = true;
+      const left = Math.max(0, Math.min(innerWidth - rect.width, ev.clientX - offX));
+      const top = Math.max(0, Math.min(innerHeight - rect.height, ev.clientY - offY));
+      el.style.left = `${left}px`; el.style.top = `${top}px`; el.style.right = "auto"; el.style.bottom = "auto"; el.style.marginLeft = "0";
+    };
+    const up = () => {
+      removeEventListener("pointermove", move); removeEventListener("pointerup", up);
+      if (moved) { try { localStorage.setItem(PANEL_STORE + id, JSON.stringify({ left: parseFloat(el.style.left), top: parseFloat(el.style.top) })); } catch { /* ignore */ } }
+    };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+    e.preventDefault();
+  });
+}
+for (const [id, handle] of [["vitals"], ["target"], ["inv", "h3"], ["hud", "#chattabs"], ["jumpbar"], ["tools"]] as [string, string?][]) makeDraggable(id, handle);
+function resetUi() {
+  for (const id of ["vitals", "target", "inv", "hud", "jumpbar", "tools"]) {
+    try { localStorage.removeItem(PANEL_STORE + id); } catch { /* ignore */ }
+    const el = $(id); el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; el.style.marginLeft = "";
+  }
+  log("panel positions reset", "c-system");
+}
 
 // ---------- targeting ----------
 let targetGuid: number | null = null;

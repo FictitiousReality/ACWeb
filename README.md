@@ -150,6 +150,9 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Enter | focus the chat box; Escape leaves it or clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
+Every panel (vitals, target, inventory, chat, jump bar, Blink button) can be
+dragged by its background, header or the ⋮⋮ grip; positions are remembered in
+the browser, and `/resetui` restores the defaults.
 Health, stamina and mana bars sit under the status line; the selected
 target's name shows its health percentage once the server reports it.
 Chat has tabs (All, Chat, General, Trade, LFG, Combat, System, and Debug with
@@ -177,6 +180,7 @@ Type these in the chat box.
 | `/house`, `/mansion`, `/hom`, `/hometown` | house, mansion and hometown recalls |
 | `/pkarena`, `/pklarena` | PK and PK-lite arena recalls |
 | `/time` | the current Dereth time of day (compare with the retail client's sky) |
+| `/resetui` | put every panel back where it started |
 | `/blink` | jump one landblock ahead (also the Blink button) |
 | `/fly` | toggle fly mode: floors ignored, R and F move vertically, positions are reported airborne; `/fly` again lands you |
 | `/noclip`, `/ghost` | toggle walking through walls |

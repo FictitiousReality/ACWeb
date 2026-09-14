@@ -57,7 +57,9 @@ export class PlayerController {
     const forward = vx * fx + vy * fy, right = vx * fy - vy * fx;
     this.client.jump(1, [right, forward, vz]);
     this.pos.z += vz * dt; // leave the floor this frame so the floor snap doesn't cancel the jump
-    if (this.model) this.model.playMotion(0x2500003b, this.model.stance).catch(() => {});
+    // the client animates a jump as the Falling motion: its transitions from Ready / Walk / Run are
+    // the takeoff, the cycle is the airborne pose, and the transition back on landing is the landing
+    if (this.model) this.model.playMotion(0x40000015, this.model.stance).catch(() => {});
   }
   private flySpeed = 4;
 
@@ -248,6 +250,7 @@ export class PlayerController {
         this.pos.set(nx, ny, floor);
         this.airborne = false;
         this.airVel.set(0, 0, 0);
+        this.currentCommand = -1; // re-evaluate the motion so Falling links back into Ready / Walk / Run
         this.client.sendAutonomousPosition(this.position(), true); // landed: contact again
         this.lastReport = performance.now();
       } else {
@@ -272,7 +275,7 @@ export class PlayerController {
 
     if (this.model) {
       const animKey = animCmd * 8 + animSpeed;
-      if (animKey !== this.currentCommand) {
+      if (!this.airborne && animKey !== this.currentCommand) {
         this.currentCommand = animKey;
         this.model.playMotion(animCmd, this.model.stance, animSpeed);
       }

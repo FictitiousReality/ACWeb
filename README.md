@@ -150,7 +150,8 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Enter | focus the chat box; Escape leaves it or clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
-Every panel (vitals, target, inventory, chat, jump bar, Blink button) can be
+The controls and commands are listed here rather than on screen. Every panel
+(vitals, target, inventory, chat, jump bar, Blink button) can be
 dragged by its background, header or the ⋮⋮ grip; positions are remembered in
 the browser, and `/resetui` restores the defaults.
 Health, stamina and mana bars sit under the status line; the selected

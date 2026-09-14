@@ -144,13 +144,16 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | R / F | rise / descend while flying (`/fly`) |
 | Mouse drag | orbit the camera; wheel zooms |
 | Click an object | target it (name and Use / Give buttons appear) |
+| Space | jump (full charge; jump height uses a Jump skill pinned at 750 for now) |
 | U | use the target |
 | I | open or close the inventory |
 | Enter | focus the chat box; Escape leaves it or clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
-Chat has tabs (All, Chat, General, Trade, LFG, System, and Debug with
-`?debug=1`). Plain text typed on a channel tab goes to that channel; on the
+Health, stamina and mana bars sit under the status line; the selected
+target's name shows its health percentage once the server reports it.
+Chat has tabs (All, Chat, General, Trade, LFG, Combat, System, and Debug with
+`?debug=1`). Damage dealt and taken, and spell messages, go to Combat. Plain text typed on a channel tab goes to that channel; on the
 other tabs it is local speech.
 
 ## Commands

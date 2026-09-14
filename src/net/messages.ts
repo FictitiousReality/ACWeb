@@ -675,3 +675,50 @@ export function buildTurbineChat(channel: number, text: string, senderGuid: numb
   view.setUint32(secondSize, bytes.length - secondSize - 4, true);
   return bytes;
 }
+
+
+// ---------- player description (GameEvent 0x0013): attributes and vitals ----------
+
+export interface AttributeInfo { ranks: number; starting: number; xp: number }
+export interface VitalInfo extends AttributeInfo { current: number }
+export interface PlayerDescription {
+  attributes: Partial<Record<"strength" | "endurance" | "quickness" | "coordination" | "focus" | "self", AttributeInfo>>;
+  vitals: Partial<Record<"health" | "stamina" | "mana", VitalInfo>>;
+}
+
+/**
+ * Parses the property tables and the attribute vector of the login PlayerDescription
+ * (ACE GameEventPlayerDescription.WriteEventBody). Skills, spells and enchantments follow
+ * and are not read.
+ */
+export function parsePlayerDescription(r: BinReader): PlayerDescription {
+  const flags = r.u32();
+  r.u32(); // weenie type
+  const table = (each: () => void) => { const n = r.u16(); r.u16(); for (let i = 0; i < n; i++) each(); };
+  if (flags & 0x0001) table(() => { r.u32(); r.i32(); });          // int32
+  if (flags & 0x0080) table(() => { r.u32(); r.u32(); r.u32(); }); // int64
+  if (flags & 0x0002) table(() => { r.u32(); r.u32(); });          // bool
+  if (flags & 0x0004) table(() => { r.u32(); r.f64(); });          // double
+  if (flags & 0x0010) table(() => { r.u32(); readString16L(r); }); // string
+  if (flags & 0x0008) table(() => { r.u32(); r.u32(); });          // data id
+  if (flags & 0x0040) table(() => { r.u32(); r.u32(); });          // instance id
+  if (flags & 0x0020) table(() => { r.u32(); for (let i = 0; i < 8; i++) r.u32(); }); // position: landblock, xyz, quaternion
+  const vectorFlags = r.u32();
+  r.u32(); // has health
+  const out: PlayerDescription = { attributes: {}, vitals: {} };
+  if (vectorFlags & 0x0001) {
+    const af = r.u32();
+    const attr = (): AttributeInfo => ({ ranks: r.u32(), starting: r.u32(), xp: r.u32() });
+    const vital = (): VitalInfo => ({ ranks: r.u32(), starting: r.u32(), xp: r.u32(), current: r.u32() });
+    if (af & 0x001) out.attributes.strength = attr();
+    if (af & 0x002) out.attributes.endurance = attr();
+    if (af & 0x004) out.attributes.quickness = attr();
+    if (af & 0x008) out.attributes.coordination = attr();
+    if (af & 0x010) out.attributes.focus = attr();
+    if (af & 0x020) out.attributes.self = attr();
+    if (af & 0x040) out.vitals.health = vital();
+    if (af & 0x080) out.vitals.stamina = vital();
+    if (af & 0x100) out.vitals.mana = vital();
+  }
+  return out;
+}

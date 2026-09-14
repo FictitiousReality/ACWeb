@@ -33,6 +33,32 @@ export class PlayerController {
   noclip = false;
   /** ignore floors; R rises, F descends; reports go out airborne (/fly) */
   fly = false;
+  /** jump state: in the air with this world velocity until we meet a floor */
+  airborne = false;
+  private airVel = new THREE.Vector3();
+  /** Jump skill used for the jump height (pinned; the client doesn't read skills yet) */
+  jumpSkill = 750;
+  private wantJump = false;
+
+  /** Start a jump (full charge) from the current movement; ignored while airborne or flying. */
+  jump() {
+    if (this.airborne || this.fly) return;
+    this.wantJump = true;
+  }
+
+  private beginJump(vx: number, vy: number, dt: number) {
+    // ACE MovementSystem.GetJumpHeight: vertical velocity from the Jump skill at full power, unburdened
+    const skill = this.jumpSkill;
+    const vz = Math.max(0.35, (skill / (skill + 1300) * 22.2 + 0.05));
+    this.airborne = true;
+    this.airVel.set(vx, vy, vz);
+    // the packet carries the velocity in our own frame: x right, y forward, z up
+    const fx = -Math.sin(this.yaw), fy = Math.cos(this.yaw);
+    const forward = vx * fx + vy * fy, right = vx * fy - vy * fx;
+    this.client.jump(1, [right, forward, vz]);
+    this.pos.z += vz * dt; // leave the floor this frame so the floor snap doesn't cancel the jump
+    if (this.model) this.model.playMotion(0x2500003b, this.model.stance).catch(() => {});
+  }
   private flySpeed = 4;
 
   /** Leave fly mode and drop onto the nearest floor below (or the terrain). */
@@ -206,10 +232,27 @@ export class PlayerController {
     if (cmd === Cmd.Ready && left !== right) { cmd = left ? Cmd.TurnLeft : Cmd.TurnRight; animCmd = Cmd.TurnRight; animSpeed = left ? -turnSpeed : turnSpeed; }
 
     if ((vx !== 0 || vy !== 0) && !this.noclip) [vx, vy] = this.slideAlongWalls(vx, vy, dt);
+    if (this.wantJump) { this.wantJump = false; this.beginJump(vx, vy, dt); }
     if (this.fly) {
       // free flight: no floor snapping, vertical keys, position reported as airborne
       const vz = (k.has("KeyR") ? 1 : 0) - (k.has("KeyF") ? 1 : 0);
       this.pos.x += vx * dt; this.pos.y += vy * dt; this.pos.z += vz * this.flySpeed * rate * dt;
+    } else if (this.airborne) {
+      // ballistic arc: takeoff velocity, gravity 9.8; no air control (as in the game)
+      this.airVel.z -= 9.8 * dt;
+      let [ax, ay] = [this.airVel.x, this.airVel.y];
+      if ((ax !== 0 || ay !== 0) && !this.noclip) [ax, ay] = this.slideAlongWalls(ax, ay, dt);
+      const nx = this.pos.x + ax * dt, ny = this.pos.y + ay * dt, nz = this.pos.z + this.airVel.z * dt;
+      const floor = this.streamer.floorAt(nx, ny, Math.max(nz, this.pos.z), 0.2, 8) ?? this.streamer.heightAt(nx, ny);
+      if (this.airVel.z <= 0 && floor !== null && nz <= floor) {
+        this.pos.set(nx, ny, floor);
+        this.airborne = false;
+        this.airVel.set(0, 0, 0);
+        this.client.sendAutonomousPosition(this.position(), true); // landed: contact again
+        this.lastReport = performance.now();
+      } else {
+        this.pos.set(nx, ny, nz);
+      }
     } else if (vx !== 0 || vy !== 0) {
       const nx = this.pos.x + vx * dt, ny = this.pos.y + vy * dt;
       const floor = this.streamer.floorAt(nx, ny, this.pos.z);
@@ -247,10 +290,10 @@ export class PlayerController {
       if (sr && !sl) m.sidestep = Cmd.SideStepRight;
       else if (sl && !sr) m.sidestep = Cmd.SideStepLeft;
       if (left !== right) { m.turn = left ? Cmd.TurnLeft : Cmd.TurnRight; m.turnSpeed = 1; }
-      this.client.sendMoveToState(m, this.position(), this.contact && !this.fly);
+      this.client.sendMoveToState(m, this.position(), this.contact && !this.fly && !this.airborne);
       this.lastReport = now;
-    } else if ((cmd !== Cmd.Ready || this.fly) && now - this.lastReport > 1000) {
-      this.client.sendAutonomousPosition(this.position(), this.contact && !this.fly);
+    } else if ((cmd !== Cmd.Ready || this.fly || this.airborne) && now - this.lastReport > 1000) {
+      this.client.sendAutonomousPosition(this.position(), this.contact && !this.fly && !this.airborne);
       this.lastReport = now;
     }
   }

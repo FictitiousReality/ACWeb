@@ -11,9 +11,13 @@ import {
   buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
   buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote,
   buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
+  parsePlayerDescription, buildJump,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
 } from "./messages.ts";
+
+export interface VitalPair { current: number; max: number }
+export interface Vitals { health: VitalPair; stamina: VitalPair; mana: VitalPair }
 
 export interface WorldObject {
   guid: number;
@@ -73,6 +77,10 @@ export interface ClientEvents {
   onObjectPickedUp?(guid: number): void;
   /** ParentEvent: an item is now held/worn by a creature at a parent location */
   onObjectParented?(obj: WorldObject): void;
+  /** our health / stamina / mana changed (current or max) */
+  onVitals?(v: Vitals): void;
+  /** the server reports a creature's health as a fraction (selected target) */
+  onTargetHealth?(guid: number, fraction: number): void;
   onError?(text: string): void;
 }
 
@@ -214,6 +222,27 @@ export class GameClient {
     this.send(buildAutonomousPosition(pos, this.playerSequences, contact), Group.SecureWeenie);
   }
 
+  /** attributes (starting + ranks) and vitals, from the login description and later updates */
+  attributes = { strength: 0, endurance: 0, quickness: 0, coordination: 0, focus: 0, self: 0 };
+  private vitalBase = { health: { ranks: 0, starting: 0, current: 0 }, stamina: { ranks: 0, starting: 0, current: 0 }, mana: { ranks: 0, starting: 0, current: 0 } };
+  vitals: Vitals = { health: { current: 0, max: 0 }, stamina: { current: 0, max: 0 }, mana: { current: 0, max: 0 } };
+
+  /** Max vitals: health = round(endurance / 2), stamina = endurance, mana = self, plus ranks (buffs not included). */
+  private recomputeVitals() {
+    const a = this.attributes, b = this.vitalBase;
+    this.vitals = {
+      health: { current: b.health.current, max: Math.round(a.endurance / 2) + b.health.ranks + b.health.starting },
+      stamina: { current: b.stamina.current, max: a.endurance + b.stamina.ranks + b.stamina.starting },
+      mana: { current: b.mana.current, max: a.self + b.mana.ranks + b.mana.starting },
+    };
+    this.events.onVitals?.(this.vitals);
+  }
+
+  /** Jump: `extent` is the charge (0..1), `velocity` is in our own frame (x right, y forward, z up). */
+  jump(extent: number, velocity: [number, number, number]) {
+    this.send(buildJump(extent, velocity, this.playerSequences), Group.Weenie);
+  }
+
   /** debug aid: raw messages of these opcodes (and any message whose handler throws) go to onCapture */
   captureOpcodes = new Set<number>();
   onCapture: ((opcode: number, data: Uint8Array, error?: string) => void) | null = null;
@@ -303,6 +332,28 @@ export class GameClient {
         if (existed) this.events.onObjectUpdate?.(obj);
         else this.events.onObjectCreate?.(obj);
         if (obj.container === this.playerGuid || obj.wielder === this.playerGuid || this.isInMyPack(obj)) this.events.onInventory?.();
+        break;
+      }
+      case 0x02e9: { // PrivateUpdateAttribute2ndLevel: a vital's current value
+        r.u8();
+        const vital = r.u32(), current = r.u32();
+        const key = vital === 2 ? "health" : vital === 4 ? "stamina" : vital === 6 ? "mana" : null;
+        if (key) { this.vitalBase[key].current = current; this.recomputeVitals(); }
+        break;
+      }
+      case 0x02e7: { // PrivateUpdateVital: ranks, starting, xp, current
+        r.u8();
+        const vital = r.u32(), ranks = r.u32(), starting = r.u32(); r.u32(); const current = r.u32();
+        const key = vital === 2 || vital === 1 ? "health" : vital === 4 || vital === 3 ? "stamina" : vital === 6 || vital === 5 ? "mana" : null;
+        if (key) { this.vitalBase[key] = { ranks, starting, current }; this.recomputeVitals(); }
+        break;
+      }
+      case 0x02e3: { // PrivateUpdateAttribute: ranks, starting, xp
+        r.u8();
+        const attr = r.u32(), ranks = r.u32(), starting = r.u32();
+        const names = ["", "strength", "endurance", "quickness", "coordination", "focus", "self"] as const;
+        const key = names[attr];
+        if (key) { this.attributes[key] = ranks + starting; this.recomputeVitals(); }
         break;
       }
       case Opcode.PlayEffect: {
@@ -535,8 +586,22 @@ export class GameClient {
         this.events.onLog?.(`chat channels ready (allegiance ${this.allegianceChannel || "none"})`);
         break;
       }
-      case 0x0013: // PlayerDescription: large; we don't need it yet
+      case 0x0013: { // PlayerDescription: properties, attributes and vitals (skills/spells/enchantments not read)
+        try {
+          const d = parsePlayerDescription(r);
+          for (const [k, v] of Object.entries(d.attributes)) if (v) this.attributes[k as keyof typeof this.attributes] = v.ranks + v.starting;
+          for (const [k, v] of Object.entries(d.vitals)) if (v) this.vitalBase[k as keyof typeof this.vitalBase] = { ranks: v.ranks, starting: v.starting, current: v.current };
+          this.recomputeVitals();
+        } catch (e) {
+          this.log(`player description parse failed: ${(e as Error).message}`);
+        }
         break;
+      }
+      case 0x01c0: { // UpdateHealth: a creature's health fraction (the one we selected)
+        const guid = r.u32(), frac = r.f32();
+        this.events.onTargetHealth?.(guid, frac);
+        break;
+      }
       default:
         break;
     }

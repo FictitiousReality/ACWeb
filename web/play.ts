@@ -8,7 +8,7 @@ import { AnimatedModel } from "../src/render/animated.ts";
 import { ParticleSystem } from "../src/render/particles.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
-import type { CharacterList, WorldObject } from "../src/net/client.ts";
+import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
 import { CHARGEN_ID, SKILLTABLE_ID, parseCharGen, parseSkillTable } from "../src/dat/mod.ts";
 import type { CharGen, SkillBase } from "../src/dat/mod.ts";
 import { Opcode } from "../src/net/messages.ts";
@@ -19,13 +19,13 @@ const statusEl = $("status");
 const loginStatus = $("loginStatus");
 
 // ---------- chat panel with tabs ----------
-type Tab = "all" | "chat" | "general" | "trade" | "lfg" | "system" | "debug";
-const TABS: Tab[] = ["all", "chat", "general", "trade", "lfg", "system", "debug"];
+type Tab = "all" | "chat" | "general" | "trade" | "lfg" | "combat" | "system" | "debug";
+const TABS: Tab[] = ["all", "chat", "general", "trade", "lfg", "combat", "system", "debug"];
 const CHANNEL_TABS: Record<number, Tab> = { 2: "general", 3: "trade", 4: "lfg" };
 const TAB_CHANNEL: Partial<Record<Tab, number>> = { general: 2, trade: 3, lfg: 4 };
 let activeTab: Tab = "all";
 let showTimestamps = false;
-const unread: Record<Tab, number> = { all: 0, chat: 0, general: 0, trade: 0, lfg: 0, system: 0, debug: 0 };
+const unread: Record<Tab, number> = { all: 0, chat: 0, general: 0, trade: 0, lfg: 0, combat: 0, system: 0, debug: 0 };
 const CHAT_CLASSES = new Set(["c-speech", "c-tell", "c-outtell", "c-emote", "c-you", "c-broadcast"]);
 const MAX_LINES = 400;
 
@@ -35,6 +35,7 @@ function tabsFor(cls: string): Tab[] {
   if (cls === "c-trade") return ["all", "trade"];
   if (cls === "c-lfg") return ["all", "lfg"];
   if (cls === "c-allegiance") return ["all", "chat"];
+  if (cls === "c-combat" || cls === "c-magic") return ["all", "combat"];
   if (CHAT_CLASSES.has(cls)) return ["all", "chat"];
   return ["all", "system"];
 }
@@ -303,6 +304,8 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onInventory: () => renderInventory(),
       onObjectPickedUp: (g) => netWorld?.remove(g),
       onObjectParented: (o) => netWorld?.attach(o),
+      onVitals: (v) => renderVitals(v),
+      onTargetHealth: (g, f) => { if (g === targetGuid) { targetHealth = f; renderTarget(); } },
       onCharacterList: showCharacters,
       onCharacterCreated: (result, _guid, name) => { loginStatus.textContent = result === "Ok" ? `created ${name}` : `create failed: ${result}`; },
       onEnterWorld: onEnterWorld,
@@ -490,19 +493,35 @@ addEventListener("keydown", (e) => {
   if (!player) return;
   if (e.key === "Enter") { e.preventDefault(); $("chatin").focus(); }
   else if (e.code === "KeyI") toggleInventory();
+  else if (e.code === "Space") { e.preventDefault(); player.jump(); }
   else if (e.code === "KeyU" && targetGuid && client) client.use(targetGuid);
   else if (e.key === "Escape") setTarget(null);
 });
 
 // ---------- targeting ----------
 let targetGuid: number | null = null;
+let targetHealth: number | null = null;
 function setTarget(guid: number | null) {
   targetGuid = guid;
-  const o = guid !== null ? client?.objects.get(guid) : null;
+  targetHealth = null;
+  renderTarget();
+}
+function renderTarget() {
+  const o = targetGuid !== null ? client?.objects.get(targetGuid) : null;
   $("target").classList.toggle("show", !!o);
-  $("targetName").textContent = o ? `${o.name}` : "";
+  $("targetName").textContent = o ? `${o.name}${targetHealth !== null ? `  ${Math.round(targetHealth * 100)}%` : ""}` : "";
 }
 $("btnUse").addEventListener("click", () => { if (targetGuid && client) client.use(targetGuid); });
+function renderVitals(v: Vitals) {
+  const box = $("vitals");
+  box.style.display = "block";
+  const set = (bar: string, id: string, p: VitalPair) => {
+    (box.querySelector(`.${bar}`) as HTMLElement).style.width = `${p.max > 0 ? Math.max(0, Math.min(100, p.current / p.max * 100)) : 0}%`;
+    $(id).textContent = p.max > 0 ? `${p.current} / ${p.max}` : `${p.current}`;
+  };
+  set("hp", "vHealth", v.health); set("st", "vStamina", v.stamina); set("mn", "vMana", v.mana);
+}
+
 function blink() {
   if (!player || !streamer) return;
   if (player.blink()) { streamer.update(player.pos.x, player.pos.y); log("blinked one landblock ahead", "c-system"); }

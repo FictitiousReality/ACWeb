@@ -44,6 +44,12 @@
     .item .eq { opacity: .6; font-size: 11px; }
     #invActions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
     #invActions button { font: inherit; }
+    #vitals { position: fixed; top: 30px; left: 10px; z-index: 3; width: 200px; display: none; font-size: 11px; }
+    #vitals .vital { position: relative; height: 16px; margin-bottom: 4px; background: rgba(0,0,0,.55); border-radius: 4px; overflow: hidden; }
+    #vitals .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transition: width .25s; }
+    #vitals .hp { background: #b3302f; } #vitals .st { background: #b08a1e; } #vitals .mn { background: #2f5fb3; }
+    #vitals span, #vitals em { position: relative; line-height: 16px; padding: 0 6px; color: #fff; text-shadow: 0 0 2px #000; font-style: normal; }
+    #vitals em { float: right; }
     #status { position: fixed; top: 8px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; opacity: .85; z-index: 3; white-space: pre; }
     #tools { position: fixed; top: 8px; right: 10px; z-index: 3; }
     #help { position: fixed; right: 10px; bottom: 8px; opacity: .6; z-index: 3; text-align: right; font-size: 12px; }
@@ -77,6 +83,11 @@
     </form>
   </div>
   <div id="status"></div>
+  <div id="vitals">
+    <div class="vital"><div class="bar hp"></div><span>Health</span><em id="vHealth">-</em></div>
+    <div class="vital"><div class="bar st"></div><span>Stamina</span><em id="vStamina">-</em></div>
+    <div class="vital"><div class="bar mn"></div><span>Mana</span><em id="vMana">-</em></div>
+  </div>
   <div id="tools"><button id="btnBlink" type="button" title="jump one landblock in the direction you face (/blink)">Blink ▶</button></div>
   <div id="target"><span id="targetName"></span><button id="btnUse" type="button">Use (U)</button><button id="btnGive" type="button">Give item</button><button id="btnClear" type="button">×</button></div>
   <div id="inv"><h3>Inventory (I)</h3><div id="invList"></div><div id="invActions"><button id="invUse" type="button">Use</button><button id="invGive" type="button">Give to target</button><button id="invDrop" type="button">Drop</button></div></div>
@@ -87,6 +98,7 @@
       <button type="button" data-tab="general">General<span class="badge"></span></button>
       <button type="button" data-tab="trade">Trade<span class="badge"></span></button>
       <button type="button" data-tab="lfg">LFG<span class="badge"></span></button>
+      <button type="button" data-tab="combat">Combat<span class="badge"></span></button>
       <button type="button" data-tab="system">System<span class="badge"></span></button>
       <button type="button" data-tab="debug">Debug<span class="badge"></span></button>
       <span class="spacer"></span>
@@ -98,11 +110,12 @@
     <div class="chatlog" id="log-general"></div>
     <div class="chatlog" id="log-trade"></div>
     <div class="chatlog" id="log-lfg"></div>
+    <div class="chatlog" id="log-combat"></div>
     <div class="chatlog" id="log-system"></div>
     <div class="chatlog" id="log-debug"></div>
     <input id="chatin" placeholder="say something… (Enter · /tell Name, msg · /r reply · /e emote · @cmd)">
   </div>
-  <div id="help">W/S move · A/D turn · Q/E sidestep · Shift walk · click to target · U use · I inventory · Enter chat · /tell /r /e /g /tr /lfg · /ls /mp /house · /blink /fly /noclip · @cmd</div>
+  <div id="help">W/S move · A/D turn · Q/E sidestep · Shift walk · click to target · Space jump · U use · I inventory · Enter chat · /tell /r /e /g /tr /lfg · /ls /mp /house · /blink /fly /noclip · @cmd</div>
   <script type="module" src="dist/play.js"></script>
 </body>
 </html>

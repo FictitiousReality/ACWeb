@@ -58,6 +58,12 @@ check the rules of any server before connecting to it.
 - **Collision**: walls, building interiors, scenery, closed doors and static
   server objects block the player (horizontal rays at knee and chest height,
   sliding along the wall); `/noclip` toggles walking through walls.
+- **Vitals and combat feedback**: health, stamina and mana bars from the
+  login description and live updates; a Combat chat tab for damage and spell
+  messages; the selected target's health percentage.
+- **Jumping**: hold Space to charge, release to jump; the game's jump formula
+  (Jump skill pinned at 750 for now), gravity, no air control, takeoff and
+  landing animations, the jump packet to the server.
 - **Client UI**: login and character creation, two-ring world streaming
   (full detail near the player, terrain-only to the horizon), third-person
   camera, click-to-target, inventory with the game's icons, tabbed chat with

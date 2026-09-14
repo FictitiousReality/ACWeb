@@ -22,6 +22,11 @@
     #chattabs button .badge:empty { display: none; }
     #chattabs .spacer { flex: 1; }
     #chattabs .tool { background: none; color: #999; padding: 3px 6px; }
+    #chattabs button.hidden-tab { display: none; }
+    #chatTabMenu { display: none; position: absolute; right: 6px; margin-top: 2px; z-index: 5; background: rgba(0,0,0,.9); border: 1px solid #555; border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+    #chatTabMenu.show { display: block; }
+    #chatTabMenu label { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; white-space: nowrap; }
+    #chatTabMenu h5 { margin: 0 0 4px; font-size: 11px; font-weight: normal; opacity: .6; }
     .chatlog { height: 220px; overflow-y: auto; background: rgba(0,0,0,.6); padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 12.5px; white-space: pre-wrap; resize: vertical; display: none; }
     .chatlog.active { display: block; }
     .chatlog div { padding: 1px 0; }
@@ -167,9 +172,11 @@
       <button type="button" data-tab="system">System<span class="badge"></span></button>
       <button type="button" data-tab="debug">Debug<span class="badge"></span></button>
       <span class="spacer"></span>
+      <button type="button" class="tool" id="chatTabsCfg" title="choose which chat tabs to show">⚙</button>
       <button type="button" class="tool" id="chatTs" title="toggle timestamps">🕒</button>
       <button type="button" class="tool" id="chatClear" title="clear this tab">clear</button>
     </div>
+    <div id="chatTabMenu"></div>
     <div class="chatlog active" id="log-all"></div>
     <div class="chatlog" id="log-chat"></div>
     <div class="chatlog" id="log-general"></div>

@@ -68,17 +68,66 @@ function log(line: string, cls = "", sender?: string) {
     box.appendChild(div);
     while (box.children.length > MAX_LINES) box.removeChild(box.firstChild!);
     if (atBottom) box.scrollTop = box.scrollHeight;
-    if (tab !== activeTab && tab !== "all" && cls !== "c-debug") {
+    if (tab !== activeTab && tab !== "all" && cls !== "c-debug" && tabVisible[tab]) {
       unread[tab]++;
       updateBadges();
     }
   }
 }
+// ---------- which tabs are shown (remembered per browser) ----------
+const TAB_LABELS: Record<Tab, string> = { all: "All", chat: "Chat", general: "General", trade: "Trade", lfg: "LFG", combat: "Combat", system: "System", debug: "Debug" };
+const TAB_VIS_KEY = "acweb.chattabs";
+const debugMode = new URLSearchParams(location.search).get("debug") === "1";
+const tabVisible: Record<Tab, boolean> = { all: true, chat: true, general: true, trade: true, lfg: true, combat: true, system: true, debug: debugMode };
+try {
+  const saved = localStorage.getItem(TAB_VIS_KEY);
+  if (saved) Object.assign(tabVisible, JSON.parse(saved));
+} catch { /* storage unavailable */ }
+
+function applyTabVisibility() {
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#chattabs button[data-tab]")) {
+    b.classList.toggle("hidden-tab", !tabVisible[b.dataset.tab as Tab]);
+  }
+  if (!tabVisible[activeTab]) setTab(TABS.find((t) => tabVisible[t]) ?? "all");
+  try { localStorage.setItem(TAB_VIS_KEY, JSON.stringify(tabVisible)); } catch { /* ignore */ }
+}
+
+function buildTabMenu() {
+  const menu = $("chatTabMenu");
+  menu.innerHTML = "";
+  menu.appendChild(Object.assign(document.createElement("h5"), { textContent: "Chat tabs to show" }));
+  for (const t of TABS) {
+    const row = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = tabVisible[t];
+    box.onchange = () => {
+      // never hide the last one
+      if (!box.checked && TABS.filter((x) => tabVisible[x]).length <= 1) { box.checked = true; return; }
+      tabVisible[t] = box.checked;
+      applyTabVisibility();
+    };
+    row.append(box, document.createTextNode(TAB_LABELS[t]));
+    menu.appendChild(row);
+  }
+}
+$("chatTabsCfg").onclick = (e) => {
+  e.stopPropagation();
+  const menu = $("chatTabMenu");
+  const show = !menu.classList.contains("show");
+  if (show) buildTabMenu();
+  menu.classList.toggle("show", show);
+};
+addEventListener("click", (e) => {
+  const menu = $("chatTabMenu");
+  if (menu.classList.contains("show") && !menu.contains(e.target as Node)) menu.classList.remove("show");
+});
+
 function updateBadges() {
   for (const b of document.querySelectorAll<HTMLButtonElement>("#chattabs button[data-tab]")) {
     const tab = b.dataset.tab as Tab;
     const badge = b.querySelector(".badge")!;
-    badge.textContent = unread[tab] > 0 ? String(unread[tab]) : "";
+    badge.textContent = unread[tab] > 0 && tabVisible[tab] ? String(unread[tab]) : "";
   }
 }
 function setTab(tab: Tab) {
@@ -93,6 +142,7 @@ function setTab(tab: Tab) {
   $<HTMLInputElement>("chatin").placeholder = ch ? `say on ${tab} (Enter) · /s to say locally` : "say something… (Enter · /tell Name, msg · /r reply · /e emote · /g /tr /lfg channels · @cmd)";
 }
 for (const b of document.querySelectorAll<HTMLButtonElement>("#chattabs button[data-tab]")) b.onclick = () => setTab(b.dataset.tab as Tab);
+applyTabVisibility();
 $("chatClear").onclick = () => { $(`log-${activeTab}`).innerHTML = ""; };
 $("chatTs").onclick = () => { showTimestamps = !showTimestamps; };
 
@@ -348,7 +398,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       },
     });
     client.connect(host, port, account, password);
-    if (new URLSearchParams(location.search).get("debug") === "1") {
+    if (debugMode) {
       client.session!.debug = true;
       // post raw movement messages to the dev server (captures.log) so they can be decoded offline
       const queue: string[] = [];

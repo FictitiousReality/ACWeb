@@ -171,8 +171,11 @@ dragged by its background, header or the ⋮⋮ grip; positions are remembered i
 the browser, and `/resetui` restores the defaults.
 Health, stamina and mana bars sit under the status line; the selected
 target's name shows its health percentage once the server reports it.
-Chat has tabs (All, Chat, General, Trade, LFG, Combat, System, and Debug with
-`?debug=1`). Damage dealt and taken, and spell messages, go to Combat. Plain text typed on a channel tab goes to that channel; on the
+Chat has tabs: All, Chat, General, Trade, LFG, Combat, System and Debug.
+Damage dealt and taken, and spell messages, go to Combat. The ⚙ button on the
+tab strip chooses which tabs to show, remembered in the browser; Debug is
+hidden unless you start with `?debug=1`. Hidden tabs still collect their
+messages, so turning one back on shows what you missed. Plain text typed on a channel tab goes to that channel; on the
 other tabs it is local speech.
 
 ## Commands

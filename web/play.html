@@ -50,6 +50,8 @@
     #vitals .hp { background: #b3302f; } #vitals .st { background: #b08a1e; } #vitals .mn { background: #2f5fb3; }
     #vitals span, #vitals em { position: relative; line-height: 16px; padding: 0 6px; color: #fff; text-shadow: 0 0 2px #000; font-style: normal; }
     #vitals em { float: right; }
+    #jumpbar { position: fixed; left: 50%; bottom: 120px; width: 220px; height: 10px; margin-left: -110px; background: rgba(0,0,0,.6); border: 1px solid #888; border-radius: 3px; display: none; z-index: 3; }
+    #jumpbar div { height: 100%; width: 0; background: #e0c040; transition: width .05s linear; }
     #status { position: fixed; top: 8px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; opacity: .85; z-index: 3; white-space: pre; }
     #tools { position: fixed; top: 8px; right: 10px; z-index: 3; }
     #help { position: fixed; right: 10px; bottom: 8px; opacity: .6; z-index: 3; text-align: right; font-size: 12px; }
@@ -83,6 +85,7 @@
     </form>
   </div>
   <div id="status"></div>
+  <div id="jumpbar"><div></div></div>
   <div id="vitals">
     <div class="vital"><div class="bar hp"></div><span>Health</span><em id="vHealth">-</em></div>
     <div class="vital"><div class="bar st"></div><span>Stamina</span><em id="vStamina">-</em></div>

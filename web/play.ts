@@ -493,9 +493,13 @@ addEventListener("keydown", (e) => {
   if (!player) return;
   if (e.key === "Enter") { e.preventDefault(); $("chatin").focus(); }
   else if (e.code === "KeyI") toggleInventory();
-  else if (e.code === "Space") { e.preventDefault(); player.jump(); }
+  else if (e.code === "Space") { e.preventDefault(); if (!e.repeat) player.startJumpCharge(); }
   else if (e.code === "KeyU" && targetGuid && client) client.use(targetGuid);
   else if (e.key === "Escape") setTarget(null);
+});
+
+addEventListener("keyup", (e) => {
+  if (e.code === "Space" && player && (e.target as HTMLElement)?.tagName !== "INPUT") player.releaseJump();
 });
 
 // ---------- targeting ----------
@@ -613,6 +617,12 @@ function frame(now: number) {
   }
   netWorld?.update(dt);
   particles?.update(dt);
+  if (player) {
+    const jb = $("jumpbar");
+    const c = player.jumpCharge;
+    jb.style.display = c === null ? "none" : "block";
+    if (c !== null) (jb.firstElementChild as HTMLElement).style.width = `${Math.round(c * 100)}%`;
+  }
   camera.updateMatrixWorld();
   const s = client?.session;
   if (sky && s && s.serverTimeOffset) sky.timeOfDay = timeOfDayFromServerTime(s.clientTime + s.serverTimeOffset, sky.gameTime.dayLength, sky.gameTime.zeroTimeOfYear);

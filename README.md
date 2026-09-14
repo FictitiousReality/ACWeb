@@ -144,7 +144,7 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | R / F | rise / descend while flying (`/fly`) |
 | Mouse drag | orbit the camera; wheel zooms |
 | Click an object | target it (name and Use / Give buttons appear) |
-| Space | jump (full charge; jump height uses a Jump skill pinned at 750 for now) |
+| Space (hold) | charge a jump: a bar fills over a second; release to jump with that power (jump height uses a Jump skill pinned at 750 for now) |
 | U | use the target |
 | I | open or close the inventory |
 | Enter | focus the chat box; Escape leaves it or clears the target |

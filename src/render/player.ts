@@ -39,23 +39,43 @@ export class PlayerController {
   /** Jump skill used for the jump height (pinned; the client doesn't read skills yet) */
   jumpSkill = 750;
   private wantJump = false;
+  private jumpPower = 1;
+  /** seconds of holding Space for a full-power jump */
+  static readonly JUMP_CHARGE_SECONDS = 1.0;
+  /** charge fraction while Space is held (null when not charging), for the jump bar */
+  jumpCharge: number | null = null;
 
-  /** Start a jump (full charge) from the current movement; ignored while airborne or flying. */
+  /** Space pressed: start charging (ignored while airborne or flying). */
+  startJumpCharge() {
+    if (this.airborne || this.fly || this.jumpCharge !== null) return;
+    this.jumpCharge = 0;
+  }
+
+  /** Space released: jump with the charged power. */
+  releaseJump() {
+    if (this.jumpCharge === null) return;
+    this.jumpPower = Math.max(0.05, Math.min(1, this.jumpCharge));
+    this.jumpCharge = null;
+    if (!this.airborne && !this.fly) this.wantJump = true;
+  }
+
+  /** Jump at full charge right away (used by scripts/tests). */
   jump() {
     if (this.airborne || this.fly) return;
+    this.jumpPower = 1;
     this.wantJump = true;
   }
 
   private beginJump(vx: number, vy: number, dt: number) {
-    // ACE MovementSystem.GetJumpHeight: vertical velocity from the Jump skill at full power, unburdened
-    const skill = this.jumpSkill;
-    const vz = Math.max(0.35, (skill / (skill + 1300) * 22.2 + 0.05));
+    // ACE MovementSystem.GetJumpHeight: vertical velocity from the Jump skill and the charged power, unburdened
+    const skill = this.jumpSkill, power = this.jumpPower;
+    const vz = Math.max(0.35, (skill / (skill + 1300) * 22.2 + 0.05) * power);
     this.airborne = true;
     this.airVel.set(vx, vy, vz);
     // the packet carries the velocity in our own frame: x right, y forward, z up
     const fx = -Math.sin(this.yaw), fy = Math.cos(this.yaw);
     const forward = vx * fx + vy * fy, right = vx * fy - vy * fx;
-    this.client.jump(1, [right, forward, vz]);
+    this.client.jump(power, [right, forward, vz]);
     this.pos.z += vz * dt; // leave the floor this frame so the floor snap doesn't cancel the jump
     // the client animates a jump as the Falling motion: its transitions from Ready / Walk / Run are
     // the takeoff, the cycle is the airborne pose, and the transition back on landing is the landing
@@ -234,6 +254,7 @@ export class PlayerController {
     if (cmd === Cmd.Ready && left !== right) { cmd = left ? Cmd.TurnLeft : Cmd.TurnRight; animCmd = Cmd.TurnRight; animSpeed = left ? -turnSpeed : turnSpeed; }
 
     if ((vx !== 0 || vy !== 0) && !this.noclip) [vx, vy] = this.slideAlongWalls(vx, vy, dt);
+    if (this.jumpCharge !== null) this.jumpCharge = Math.min(1, this.jumpCharge + dt / PlayerController.JUMP_CHARGE_SECONDS);
     if (this.wantJump) { this.wantJump = false; this.beginJump(vx, vy, dt); }
     if (this.fly) {
       // free flight: no floor snapping, vertical keys, position reported as airborne

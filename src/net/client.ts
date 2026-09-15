@@ -12,7 +12,7 @@ import {
   buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildGetAndWield, buildIdentify, buildTell, buildEmote, buildSoulEmote,
   buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
   parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32, gameActionU32x2, gameActionU32x3,
-  readEnchantment, readEnchantmentList, readLayeredSpells,
+  readEnchantment, readEnchantmentList, readLayeredSpells, buildVendorTransaction, parseApproachVendor, type VendorInfo,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
   type AllegianceProfile, type AllegianceMember, type SkillInfo, type EnchantmentInfo,
@@ -26,7 +26,7 @@ export const ATTRIBUTE_NAMES: (AttributeName | "")[] = ["", "strength", "enduran
 export const VITAL_IDS: Record<VitalName, number> = { health: 1, stamina: 3, mana: 5 };
 
 export interface VitalPair { current: number; max: number }
-export type { AllegianceProfile, AllegianceMember, SkillInfo, EnchantmentInfo };
+export type { AllegianceProfile, AllegianceMember, SkillInfo, EnchantmentInfo, VendorInfo };
 export interface Vitals { health: VitalPair; stamina: VitalPair; mana: VitalPair }
 
 export interface WorldObject {
@@ -93,6 +93,8 @@ export interface ClientEvents {
   onVitals?(v: Vitals): void;
   /** attributes, skills or the spellbook changed (also fired once after login) */
   onCharacterData?(): void;
+  /** we used a vendor and it showed us its wares */
+  onVendor?(vendor: VendorInfo): void;
   /** spells on us were added, refreshed, removed, dispelled or purged */
   onEnchantments?(): void;
   /** the server finished (or refused) an action such as a cast: 0 means success */
@@ -220,6 +222,15 @@ export class GameClient {
   drop(item: number) {
     this.send(buildDrop(item), Group.Weenie);
   }
+  /** Buy items (vendor item guids from the vendor's list) from a vendor. */
+  buyItems(vendor: number, items: { guid: number; amount: number }[]) {
+    this.send(buildVendorTransaction(GameActionType.Buy, vendor, items), Group.Weenie);
+  }
+  /** Sell items from our inventory to a vendor. */
+  sellItems(vendor: number, items: { guid: number; amount: number }[]) {
+    this.send(buildVendorTransaction(GameActionType.Sell, vendor, items), Group.Weenie);
+  }
+
   /** Wear or wield an item (also used to move it between equipment slots). */
   wield(item: number, location: number) {
     this.send(buildGetAndWield(item, location), Group.Weenie);
@@ -779,6 +790,16 @@ export class GameClient {
         const code = r.u32();
         if (this.session?.debug) this.log(`use done: ${code ? `0x${code.toString(16)} ${WeenieErrorNames[code] ?? ""}` : "ok"}`);
         this.events.onUseDone?.(code, code ? humanize(WeenieErrorNames[code] ?? `error ${code}`) : "");
+        break;
+      }
+      case 0x0062: { // ApproachVendor: the vendor's rates and wares
+        try {
+          const v = parseApproachVendor(r);
+          if (this.session?.debug) this.log(`vendor ${v.guid.toString(16)}: ${v.items.length} items, sells at x${v.sellRate.toFixed(2)}, buys at x${v.buyRate.toFixed(2)}`);
+          this.events.onVendor?.(v);
+        } catch (e) {
+          this.log(`vendor list parse failed: ${(e as Error).message}`);
+        }
         break;
       }
       case 0x02c2: { this.upsertEnchantment(readEnchantment(r)); this.events.onEnchantments?.(); break; } // MagicUpdateEnchantment

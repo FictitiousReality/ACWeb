@@ -77,7 +77,17 @@ check the rules of any server before connecting to it.
   in the same category as a stronger one is shown dimmed as surpassed. It
   stays current as spells are cast, refreshed, dispelled or expire.
 - **Items**: pick up from the ground, equip, unequip, use, give and drop, with
-  the right action chosen for what the item is.
+  the right action chosen for what the item is. Double-click anything in the
+  world to interact with it: talk to an NPC, open a vendor or a door, or pick
+  up an item off the ground.
+- **Vendors**: double-click a merchant to see what it sells — icon, name, stock
+  and the price you pay, worked out with the vendor's own rate the way the
+  server does. Set a quantity per item and buy; the Sell tab lists the things
+  in your packs that this vendor deals in with what it will pay, and sells the
+  ones you tick. Your pyreals (or the vendor's alternate currency) are shown in
+  the title bar, the total tells you when you cannot afford it, and a refusal
+  from the server is reported. The window follows you and closes when you walk
+  away.
 - **Spending experience**: raise attributes, vitals and skills from the panel,
   one rank at a time or everything you can afford, with the cost shown from the
   game's own experience tables; train untrained skills with skill credits.
@@ -94,9 +104,8 @@ check the rules of any server before connecting to it.
 
 ## Not yet
 
-Combat, spellcasting, vendors, allegiance, fellowship, housing, water
-surfaces, creature-to-creature collision, rain particles in the Rainy day
-groups, sound.
+Combat, fellowship, trading with other players, housing, water surfaces,
+creature-to-creature collision, rain particles in the Rainy day groups, sound.
 
 ## Running
 
@@ -173,13 +182,14 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | R / F | rise / descend while flying (`/fly`) |
 | Mouse drag | orbit the camera; wheel zooms |
 | Click an object | target it (name and Use / Give buttons appear) |
+| Double-click an object | interact with it: talk to an NPC, open a vendor or a door, pick up an item on the ground |
 | Space (hold) | charge a jump: a bar fills over a second; release to jump with that power (jump height uses a Jump skill pinned at 750 for now) |
 | U | use the target, or pick it up when it is an item on the ground |
 | 1 – 0 | cast the spell in that slot of the current spell bar |
 | ✦ button (top right) | how many beneficial spells are on you; click for the list with the time each has left |
 | C | open or close the character panel |
 | I | the character panel's Inventory tab |
-| Enter | focus the chat box; Escape leaves it or clears the target |
+| Enter | focus the chat box; Escape closes the vendor window, then the character panel, then clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
 The spell bar sits above the panel buttons once you are in the world. A row of

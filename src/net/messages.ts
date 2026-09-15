@@ -74,7 +74,8 @@ export const GameActionType = {
   Jump: 0xf61b,
   MoveToState: 0xf61c,
   AutonomousPosition: 0xf753, AllegianceUpdateRequest: 0x001f, RaiseVital: 0x0044, RaiseAttribute: 0x0045, RaiseSkill: 0x0046, TrainSkill: 0x0047,
-  CastUntargetedSpell: 0x0048, CastTargetedSpell: 0x004a, ChangeCombatMode: 0x0053, AddSpellFavorite: 0x01e3, RemoveSpellFavorite: 0x01e4 } as const;
+  CastUntargetedSpell: 0x0048, CastTargetedSpell: 0x004a, ChangeCombatMode: 0x0053, AddSpellFavorite: 0x01e3, RemoveSpellFavorite: 0x01e4,
+  Buy: 0x005f, Sell: 0x0060 } as const;
 
 export interface Position {
   cell: number;
@@ -534,6 +535,14 @@ export function buildAutonomousPosition(pos: Position, seq: ObjectSequences, con
   return w.toBytes();
 }
 
+/** Buy from (GameActionType.Buy) or sell to (GameActionType.Sell) a vendor: vendor guid, then (amount, item guid) pairs. */
+export function buildVendorTransaction(type: number, vendor: number, items: { guid: number; amount: number }[]): Uint8Array {
+  const w = gameAction(type);
+  w.u32(vendor).u32(items.length);
+  for (const it of items) w.i32(it.amount).u32(it.guid);
+  return w.toBytes();
+}
+
 /** A game action whose payload is three u32s (add a spell to a spell bar). */
 export function gameActionU32x3(type: number, a: number, b: number, c: number): Uint8Array {
   const w = gameAction(type);
@@ -916,4 +925,60 @@ export function parseAllegianceProfile(r: BinReader): AllegianceProfile {
     members.push(parseAllegianceMember(r, patron));
   }
   return { totalMembers, totalVassals, name, motd, motdSetBy, chatRoomId, locked, officerTitles, monarch, members };
+}
+
+
+// ---------- vendors (GameEvent 0x0062 ApproachVendor) ----------
+
+export interface VendorItem {
+  guid: number;
+  /** how many the vendor has (-1 = unlimited) */
+  stock: number;
+  weenie: WeenieDesc;
+}
+export interface VendorInfo {
+  guid: number;
+  /** ItemType mask of what the vendor buys */
+  itemTypes: number;
+  minValue: number;
+  maxValue: number;
+  dealsMagic: boolean;
+  /** multiplier on item value when the vendor buys from you */
+  buyRate: number;
+  /** multiplier on item value when you buy from the vendor */
+  sellRate: number;
+  /** wcid of an alternate currency the vendor takes instead of pyreals (0 = pyreals) */
+  altCurrency: number;
+  altCurrencyCount: number;
+  altCurrencyName: string;
+  items: VendorItem[];
+}
+
+/** The vendor's rates and the items it sells: each is a stock count, the item's guid and its weenie description. */
+export function parseApproachVendor(r: BinReader): VendorInfo {
+  const guid = r.u32(), itemTypes = r.u32(), minValue = r.u32(), maxValue = r.u32();
+  const dealsMagic = r.u32() !== 0;
+  const buyRate = r.f32(), sellRate = r.f32();
+  const altCurrency = r.u32(), altCurrencyCount = r.u32();
+  const altCurrencyName = readString16L(r);
+  const n = r.u32();
+  const items: VendorItem[] = [];
+  for (let i = 0; i < n; i++) {
+    const packed = r.i32() & 0xffffff;
+    const itemGuid = r.u32();
+    items.push({ guid: itemGuid, stock: packed === 0xffffff ? -1 : packed, weenie: parseWeenieDesc(r) });
+  }
+  return { guid, itemTypes, minValue, maxValue, dealsMagic, buyRate, sellRate, altCurrency, altCurrencyCount, altCurrencyName, items };
+}
+
+const PROMISSORY_NOTE = 0x40000;
+/** What you pay the vendor for an item of this value (ACE Vendor.GetSellCost). */
+export function vendorSellPrice(v: VendorInfo, value: number, itemType: number): number {
+  const rate = itemType === PROMISSORY_NOTE ? 1.15 : v.sellRate;
+  return Math.max(1, Math.ceil(Math.fround(Math.fround(rate) * value) - 0.1));
+}
+/** What the vendor pays you for an item of this value (ACE Vendor.GetBuyCost). */
+export function vendorBuyPrice(v: VendorInfo, value: number, itemType: number): number {
+  const rate = itemType === PROMISSORY_NOTE ? 1.0 : v.buyRate;
+  return Math.max(1, Math.floor(Math.fround(Math.fround(rate) * value) + 0.1));
 }

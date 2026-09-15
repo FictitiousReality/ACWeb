@@ -9,6 +9,7 @@ import { ParticleSystem } from "../src/render/particles.ts";
 import { createCharacterPanel, loadSettings, itemAction, isOnGround, type SettingDef } from "./charpanel.ts";
 import { createSpellBar } from "./spellbar.ts";
 import { createBuffs } from "./buffs.ts";
+import { createVendorWindow } from "./vendor.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
@@ -360,12 +361,13 @@ $("loginForm").addEventListener("submit", async (ev) => {
         else log(text, "c-system");
       },
       onError: (text) => log(text, "c-error"),
-      onInventory: () => charPanel.render(),
+      onInventory: () => { charPanel.render(); if (vendorWindow.isOpen()) vendorWindow.render(); },
       onObjectPickedUp: (g) => netWorld?.remove(g),
       onObjectParented: (o) => netWorld?.attach(o),
       onVitals: (v) => { renderVitals(v); charPanel.render(); },
-      onCharacterData: () => { charPanel.render(); spellBar.render(); },
-      onUseDone: (code, text) => spellBar.onUseDone(code, text),
+      onCharacterData: () => { charPanel.render(); spellBar.render(); if (vendorWindow.isOpen()) vendorWindow.render(); },
+      onUseDone: (code, text) => { spellBar.onUseDone(code, text); vendorWindow.onUseDone(code, text); },
+      onVendor: (v) => vendorWindow.open(v),
       onEnchantments: () => buffs.render(),
       onAllegiance: () => charPanel.render(),
       onTargetHealth: (g, f) => { if (g === targetGuid) { targetHealth = f; renderTarget(); } },
@@ -576,7 +578,7 @@ addEventListener("keydown", (e) => {
   else if (/^Digit[0-9]$/.test(e.code)) spellBar.castSlot(e.code === "Digit0" ? 9 : Number(e.code.slice(5)) - 1);
   else if (e.code === "Space") { e.preventDefault(); if (!e.repeat) player.startJumpCharge(); }
   else if (e.code === "KeyU") useTarget();
-  else if (e.key === "Escape") { if (charPanel.isOpen()) charPanel.close(); else setTarget(null); }
+  else if (e.key === "Escape") { if (vendorWindow.isOpen()) vendorWindow.close(); else if (charPanel.isOpen()) charPanel.close(); else setTarget(null); }
 });
 
 addEventListener("keyup", (e) => {
@@ -616,9 +618,9 @@ function makeDraggable(id: string, handleSel?: string) {
     e.preventDefault();
   });
 }
-for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"], ["panelbar"], ["spellbar"]] as [string, string?][]) makeDraggable(id, handle);
+for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"], ["panelbar"], ["spellbar"], ["vendor", "#vendorHead"]] as [string, string?][]) makeDraggable(id, handle);
 function resetUi() {
-  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools", "panelbar", "spellbar"]) {
+  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools", "panelbar", "spellbar", "vendor"]) {
     try { localStorage.removeItem(PANEL_STORE + id); } catch { /* ignore */ }
     const el = $(id); el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; el.style.marginLeft = "";
   }
@@ -669,8 +671,9 @@ $("btnClear").addEventListener("click", () => setTarget(null));
 $("btnGive").addEventListener("click", () => charPanel.toggle("items"));
 let downX = 0, downY = 0;
 renderer.domElement.addEventListener("mousedown", (e: MouseEvent) => { downX = e.clientX; downY = e.clientY; });
-renderer.domElement.addEventListener("click", (e: MouseEvent) => {
-  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4 || !netWorld) return; // a drag, not a click
+/** The world object under the mouse, if any. */
+function pickEntity(e: MouseEvent): number | null {
+  if (!netWorld) return null;
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   const rc = new THREE.Raycaster();
   rc.setFromCamera(ndc, camera);
@@ -678,9 +681,21 @@ renderer.domElement.addEventListener("click", (e: MouseEvent) => {
   for (const h of hits) {
     let o: THREE.Object3D | null = h.object;
     while (o && o.userData.guid === undefined) o = o.parent;
-    if (o) { setTarget(o.userData.guid as number); return; }
+    if (o) return o.userData.guid as number;
   }
-  setTarget(null);
+  return null;
+}
+renderer.domElement.addEventListener("click", (e: MouseEvent) => {
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4 || !netWorld) return; // a drag, not a click
+  setTarget(pickEntity(e));
+});
+// double-click interacts: talk to an NPC, open a vendor or a door, pick up an item on the ground
+renderer.domElement.addEventListener("dblclick", (e: MouseEvent) => {
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return;
+  const guid = pickEntity(e);
+  if (guid === null) return;
+  setTarget(guid);
+  useTarget();
 });
 
 // ---------- inventory ----------
@@ -743,6 +758,15 @@ const spellBar = createSpellBar({
   },
 });
 const buffs = createBuffs({ client: () => client, spell: (id) => spellTable?.get(id), icon });
+const vendorWindow = createVendorWindow({
+  client: () => client,
+  icon,
+  log,
+  distanceTo: (guid) => {
+    const e = netWorld?.entities.get(guid);
+    return e && player ? e.root.position.distanceTo(player.pos) : null;
+  },
+});
 document.addEventListener("acweb-resetui", () => resetUi());
 
 // ---------- frame loop ----------
@@ -770,6 +794,7 @@ function frame(now: number) {
   particles?.update(dt);
   spellBar.tick(dt);
   buffs.tick(dt);
+  vendorWindow.tick();
   if (player) {
     const jb = $("jumpbar");
     const c = player.jumpCharge;

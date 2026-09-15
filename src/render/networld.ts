@@ -31,6 +31,8 @@ export interface Entity {
   simQuat: THREE.Quaternion;
   /** object-space velocity (x right, y forward) and yaw rate from the motion state */
   localVel: THREE.Vector3;
+  /** world-space velocity of a thrown or launched object (spell bolts, arrows), integrated each frame */
+  vel: THREE.Vector3 | null;
   omega: number;
   /** MoveTo target (NPC walking somewhere) */
   moveTo: { target: THREE.Vector3; speed: number } | null;
@@ -44,6 +46,9 @@ export interface Entity {
   corrRate: number;
   lastPosTime: number;
 }
+
+/** PhysicsState.Gravity: the object falls while it flies (arcing spells, thrown things) */
+const PHYSICS_GRAVITY = 0x400;
 
 /** yaw about +Z from a position quaternion (AC creatures only rotate about Z) */
 function yawOf(p: Position): number {
@@ -145,11 +150,12 @@ export class NetWorld {
     root.name = `obj_${obj.guid.toString(16)}_${obj.name}`;
     const e: Entity = {
       obj, root, model: null, simPos: new THREE.Vector3(), simYaw: 0, simQuat: new THREE.Quaternion(),
-      localVel: new THREE.Vector3(), omega: 0, moveTo: null, lastUpdate: this.now, yaw: 0, motionSerial: 0,
+      localVel: new THREE.Vector3(), vel: null, omega: 0, moveTo: null, lastUpdate: this.now, yaw: 0, motionSerial: 0,
       offset: new THREE.Vector3(), yawOffset: 0, corrRate: 4, lastPosTime: -1,
     };
     this.entities.set(obj.guid, e);
     this.group.add(root);
+    if (obj.velocity) e.vel = new THREE.Vector3(...obj.velocity);
     this.applyPosition(e, obj.position, true);
     if (obj.setup >>> 24 === 0x02) {
       const m = await AnimatedModel.create(this.assets, this.objects, obj.setup, obj.mtable, obj.raw.objDesc, obj.placement || -1);
@@ -235,7 +241,10 @@ export class NetWorld {
 
   onPosition(obj: WorldObject, u: PositionUpdate) {
     const e = this.entities.get(obj.guid);
-    if (e) this.applyPosition(e, u.position);
+    if (!e) return;
+    if (u.velocity) e.vel = new THREE.Vector3(...u.velocity);
+    else if (e.vel && (u.flags & 0x1) === 0) e.vel = null; // no velocity field: it is no longer moving
+    this.applyPosition(e, u.position);
   }
 
   /** Turn a server motion state into a velocity, a yaw rate, and the animation to play. */
@@ -335,6 +344,15 @@ export class NetWorld {
           e.simYaw = Math.atan2(-d.x, d.y);
           const step = Math.min(dist, e.moveTo.speed * dt);
           e.simPos.addScaledVector(d.normalize(), step);
+        }
+      } else if (e.vel) {
+        // a launched object (spell bolt, arrow) flies on its own velocity between the server's
+        // updates; ACE gravity is -9.8 and applies only when the physics state asks for it
+        if (this.now - e.lastUpdate > 5) {
+          e.vel = null; // nothing from the server for a while: stop rather than fly forever
+        } else {
+          e.simPos.addScaledVector(e.vel, dt);
+          if (e.obj.physicsState & PHYSICS_GRAVITY) e.vel.z -= 9.8 * dt;
         }
       } else if (e.localVel.x !== 0 || e.localVel.y !== 0 || e.omega !== 0) {
         if (this.now - e.lastUpdate > 5) {

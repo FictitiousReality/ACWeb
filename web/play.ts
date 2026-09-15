@@ -575,7 +575,7 @@ addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); $("chatin").focus(); }
   else if (e.code === "KeyI") charPanel.toggle("items");
   else if (e.code === "KeyC") charPanel.toggle();
-  else if (/^Digit[0-9]$/.test(e.code)) spellBar.castSlot(e.code === "Digit0" ? 9 : Number(e.code.slice(5)) - 1);
+  else if (/^Digit[0-9]$/.test(e.code)) { if (!e.repeat) spellBar.castSlot(e.code === "Digit0" ? 9 : Number(e.code.slice(5)) - 1); }
   else if (e.code === "Space") { e.preventDefault(); if (!e.repeat) player.startJumpCharge(); }
   else if (e.code === "KeyU") useTarget();
   else if (e.key === "Escape") { if (vendorWindow.isOpen()) vendorWindow.close(); else if (charPanel.isOpen()) charPanel.close(); else setTarget(null); }

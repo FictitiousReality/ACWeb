@@ -124,6 +124,8 @@ export function createSpellBar(deps: SpellBarDeps) {
     const s = deps.spell(spellId);
     const c = deps.client();
     if (!s || !c || !readyToCast(c)) return;
+    // one press, one cast: a double-clicked icon or a held key must not queue the same spell twice
+    if (current?.spellId === spellId || queue.some((q) => q.spellId === spellId)) return;
     const p = plan(s, "single");
     if ("skip" in p) { deps.log(p.skip, "c-error"); return; }
     queue.push({ spellId, target: p.target, label: s.name });

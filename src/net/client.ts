@@ -58,6 +58,8 @@ export interface WorldObject {
   icon: number;
   objectFlags: number;
   itemType: number;
+  /** world-space velocity from the physics description: projectiles (spell bolts, arrows) carry one */
+  velocity?: [number, number, number];
   movement?: MovementData;
   raw: CreateObject;
 }
@@ -444,7 +446,8 @@ export class GameClient {
           container: co.weenie.container ?? null, wielder: co.weenie.wielder ?? null, wieldedLocation: co.weenie.wieldedLocation ?? 0,
           validLocations: co.weenie.validLocations ?? 0,
           stackSize: co.weenie.stackSize ?? 1, value: co.weenie.value ?? 0, icon: co.weenie.icon,
-          objectFlags: co.weenie.objectFlags, itemType: co.weenie.itemType, movement: co.physics.movement, raw: co,
+          objectFlags: co.weenie.objectFlags, itemType: co.weenie.itemType, velocity: co.physics.velocity,
+          movement: co.physics.movement, raw: co,
         };
         const existed = this.objects.has(co.guid);
         this.objects.set(co.guid, obj);

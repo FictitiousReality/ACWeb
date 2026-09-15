@@ -62,6 +62,7 @@
     #charTabs .tool { background: none; color: #999; }
     .cpane { display: none; padding: 10px; overflow-y: auto; }
     .cpane.active { display: block; }
+    .cpane h3.who { margin: 0; font-size: 14px; }
     .cpane h4 { margin: 10px 0 4px; font-size: 12px; color: #dfc98a; }
     .cpane h4:first-child { margin-top: 0; }
     .cpane .note { margin: 8px 0 0; font-size: 11px; opacity: .65; }
@@ -141,7 +142,7 @@
     <div id="charTabs">
       <span class="grip" title="drag">⋮⋮</span>
       <button type="button" data-ctab="doll" class="active">Character</button>
-      <button type="button" data-ctab="attrs">Attributes</button>
+      <button type="button" data-ctab="status">Status</button>
       <button type="button" data-ctab="skills">Skills</button>
       <button type="button" data-ctab="spells">Spells</button>
       <button type="button" data-ctab="items">Inventory</button>
@@ -151,7 +152,7 @@
       <button type="button" id="charClose" class="tool" title="close (C)">×</button>
     </div>
     <div class="cpane active" id="cp-doll"></div>
-    <div class="cpane" id="cp-attrs"></div>
+    <div class="cpane" id="cp-status"></div>
     <div class="cpane" id="cp-skills"></div>
     <div class="cpane" id="cp-spells"></div>
     <div class="cpane" id="cp-items">

@@ -238,6 +238,8 @@ export class GameClient {
   properties = { int: new Map<number, number>(), int64: new Map<number, number>(), bool: new Map<number, boolean>(), float: new Map<number, number>(), string: new Map<number, string>() };
   /** our allegiance, once the server sends it (null when we are in none) */
   allegiance: AllegianceProfile | null = null;
+  /** our rank within it, from the same message */
+  allegianceRank = 0;
 
   /** Ask the server for the allegiance panel data. */
   requestAllegianceUpdate() {
@@ -367,6 +369,12 @@ export class GameClient {
         if (key) { this.vitalBase[key] = { ranks, starting, current }; this.recomputeVitals(); }
         break;
       }
+      // our own property updates keep the status page live (burden, level, deaths...)
+      case 0x02cd: { r.u8(); const k = r.u32(); this.properties.int.set(k, r.i32()); this.events.onCharacterData?.(); break; }
+      case 0x02cf: { r.u8(); const k = r.u32(); const lo = r.u32(), hi = r.u32(); this.properties.int64.set(k, hi * 2 ** 32 + lo); this.events.onCharacterData?.(); break; }
+      case 0x02d1: { r.u8(); const k = r.u32(); this.properties.bool.set(k, r.u32() !== 0); this.events.onCharacterData?.(); break; }
+      case 0x02d3: { r.u8(); const k = r.u32(); this.properties.float.set(k, r.f64()); this.events.onCharacterData?.(); break; }
+      case 0x02d5: { r.u8(); const k = r.u32(); this.properties.string.set(k, readString16L(r)); this.events.onCharacterData?.(); break; }
       case 0x02dd: { // PrivateUpdateSkill
         r.u8();
         const id = r.u32(), ranks = r.u16();
@@ -640,7 +648,7 @@ export class GameClient {
         break;
       }
       case 0x0020: { // AllegianceUpdate: our rank, then the allegiance profile
-        r.u32(); // rank
+        this.allegianceRank = r.u32();
         this.readAllegiance(r);
         break;
       }

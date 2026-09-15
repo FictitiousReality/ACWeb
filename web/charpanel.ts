@@ -10,7 +10,7 @@ import type { SkillBase, SpellBase } from "../src/dat/mod.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
-export type CharTab = "doll" | "attrs" | "skills" | "spells" | "items" | "alleg" | "settings";
+export type CharTab = "doll" | "status" | "skills" | "spells" | "items" | "alleg" | "settings";
 
 /** A client-side setting rendered as a control on the Settings tab and kept in localStorage. */
 export interface SettingDef {
@@ -142,35 +142,96 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     box.appendChild(note);
   }
 
-  function renderAttrs() {
+  const HERITAGE = ["", "Aluvian", "Gharu'ndim", "Sho", "Viamontian", "Shadowbound", "Gearknight", "Tumerok", "Lugian", "Empyrean", "Penumbraen", "Undead"];
+  const PK_STATUS: Record<number, string> = { 1: "Protected", 2: "Non-player killer", 4: "Player killer", 8: "Unprotected", 0x20: "Free", 0x40: "PK Lite" };
+
+  /** seconds of play time as "3d 4h 12m" */
+  function duration(seconds: number): string {
+    const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60);
+    return [d && `${d}d`, (d || h) && `${h}h`, `${m}m`].filter(Boolean).join(" ");
+  }
+
+  function renderStatus() {
     const c = deps.client();
-    const box = $("cp-attrs");
+    const box = $("cp-status");
     box.innerHTML = "";
     if (!c) { box.textContent = "not connected"; return; }
     const me = c.objects.get(c.playerGuid);
-    const head = document.createElement("h4");
-    const level = c.properties.int.get(25);
-    head.textContent = `${me?.name ?? "You"}${level ? `  —  level ${level}` : ""}`;
+    const int = c.properties.int, i64 = c.properties.int64, str = c.properties.string;
+
+    const head = document.createElement("h3");
+    head.className = "who";
+    const level = int.get(25);
+    head.textContent = `${me?.name ?? str.get(1) ?? "You"}${level ? `  —  level ${level}` : ""}`;
     box.appendChild(head);
-    const table = document.createElement("div");
-    table.className = "kv";
-    const row = (k: string, v: string) => {
-      const a = document.createElement("b"); a.textContent = k;
-      const b = document.createElement("span"); b.textContent = v;
-      table.append(a, b);
+    const sub = [str.get(4) ?? HERITAGE[int.get(188) ?? 0], int.get(113) === 2 ? "female" : int.get(113) === 1 ? "male" : str.get(3), str.get(5)].filter(Boolean).join(", ");
+    if (sub) box.appendChild(Object.assign(document.createElement("p"), { className: "note", textContent: sub }));
+    const title = str.get(2);
+    if (title) box.appendChild(Object.assign(document.createElement("p"), { className: "note", textContent: `"${title}"` }));
+
+    const section = (name: string) => {
+      box.appendChild(Object.assign(document.createElement("h4"), { textContent: name }));
+      const kv = document.createElement("div");
+      kv.className = "kv";
+      box.appendChild(kv);
+      return (k: string, v: string | number | undefined | null) => {
+        if (v === undefined || v === null || v === "") return;
+        const a = document.createElement("b"); a.textContent = k;
+        const b = document.createElement("span"); b.textContent = String(v);
+        kv.append(a, b);
+      };
     };
-    for (const [key, label] of [["strength", "Strength"], ["endurance", "Endurance"], ["coordination", "Coordination"], ["quickness", "Quickness"], ["focus", "Focus"], ["self", "Self"]] as const) {
-      row(label, String(c.attributes[key]));
+
+    const xp = section("Experience");
+    xp("Total experience", i64.get(1)?.toLocaleString());
+    xp("Unassigned experience", i64.get(2)?.toLocaleString());
+    const credits = int.get(24), totalCredits = int.get(23);
+    xp("Skill credits", credits !== undefined ? `${credits}${totalCredits ? ` of ${totalCredits}` : ""}` : undefined);
+    const lum = i64.get(6), maxLum = i64.get(7);
+    if (maxLum) xp("Luminance", `${(lum ?? 0).toLocaleString()} / ${maxLum.toLocaleString()}`);
+    xp("Enlightenment", int.get(390) || undefined);
+
+    const at = section("Attributes");
+    for (const [key, label] of [["strength", "Strength"], ["endurance", "Endurance"], ["coordination", "Coordination"], ["quickness", "Quickness"], ["focus", "Focus"], ["self", "Self"]] as const) at(label, c.attributes[key]);
+
+    const vt = section("Vitals");
+    vt("Health", `${c.vitals.health.current} / ${c.vitals.health.max}`);
+    vt("Stamina", `${c.vitals.stamina.current} / ${c.vitals.stamina.max}`);
+    vt("Mana", `${c.vitals.mana.current} / ${c.vitals.mana.max}`);
+
+    const bd = section("Burden");
+    const burden = int.get(5);
+    // the game's carrying capacity: 150 per point of strength (augmentations add more)
+    const capacity = c.attributes.strength * 150;
+    if (burden !== undefined && capacity > 0) {
+      bd("Carried", `${burden.toLocaleString()} of ${capacity.toLocaleString()}`);
+      bd("Burden", `${Math.round(burden / capacity * 100)}%`);
     }
-    row("Health", `${c.vitals.health.current} / ${c.vitals.health.max}`);
-    row("Stamina", `${c.vitals.stamina.current} / ${c.vitals.stamina.max}`);
-    row("Mana", `${c.vitals.mana.current} / ${c.vitals.mana.max}`);
-    const xp = c.properties.int64.get(1), unspent = c.properties.int64.get(2);
-    if (xp !== undefined) row("Total experience", xp.toLocaleString());
-    if (unspent !== undefined) row("Unassigned experience", unspent.toLocaleString());
-    const credits = c.properties.int.get(24);
-    if (credits !== undefined) row("Skill credits", String(credits));
-    box.appendChild(table);
+    bd("Item slots", int.get(6));
+    bd("Pack slots", int.get(7));
+
+    if (c.allegiance?.totalMembers || c.allegianceRank) {
+      const al = section("Allegiance");
+      al("Name", c.allegiance?.name || str.get(47) || "(unnamed)");
+      al("Your rank", c.allegianceRank || undefined);
+      al("Monarch", c.allegiance?.monarch?.name || str.get(21));
+      al("Members", c.allegiance?.totalMembers);
+      al("Your vassals", c.allegiance?.totalVassals);
+    }
+
+    const hs = section("History");
+    const age = int.get(125);
+    hs("Time played", age ? duration(age) : undefined);
+    const born = int.get(98);
+    hs("Born", born ? new Date(born * 1000).toLocaleDateString() : str.get(43));
+    hs("Deaths", int.get(43));
+    hs("Level at last death", int.get(139) || undefined);
+    const pk = int.get(134);
+    hs("Status", pk !== undefined ? PK_STATUS[pk] ?? `0x${pk.toString(16)}` : undefined);
+    hs("Fellowship", str.get(10));
+    if (!age && !born && int.get(43) === undefined) {
+      box.appendChild(Object.assign(document.createElement("p"), { className: "note", textContent: "Some values only arrive with the login description; reconnect if they are missing." }));
+    }
   }
 
   /** Effective skill value: training bonus + ranks + the attribute part of its dat formula. */
@@ -360,7 +421,7 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     if (!isOpen()) return;
     tables().then(() => {
       if (tab === "doll") renderDoll();
-      else if (tab === "attrs") renderAttrs();
+      else if (tab === "status") renderStatus();
       else if (tab === "skills") renderSkills();
       else if (tab === "spells") renderSpells();
       else if (tab === "items") renderItems();

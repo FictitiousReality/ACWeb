@@ -58,10 +58,11 @@ check the rules of any server before connecting to it.
 - **Collision**: walls, building interiors, scenery, closed doors and static
   server objects block the player (horizontal rays at knee and chest height,
   sliding along the wall); `/noclip` toggles walking through walls.
-- **Character panel**: paper doll of equipped items, attributes and vitals,
-  trained skills with their effective values, the spellbook with icons and a
-  filter, inventory, allegiance (members, monarch, motd, patron and vassals)
-  and client settings.
+- **Character panel**: paper doll of equipped items; a status page with level,
+  experience, luminance, attributes, vitals, burden and capacity, allegiance
+  and rank, time played, birth date, deaths and PK status; trained skills with
+  their effective values; the spellbook with icons and a filter; inventory;
+  allegiance detail; and client settings.
 - **Vitals and combat feedback**: health, stamina and mana bars from the
   login description and live updates; a Combat chat tab for damage and spell
   messages; the selected target's health percentage.
@@ -161,7 +162,7 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Enter | focus the chat box; Escape leaves it or clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
-The character panel (C) has tabs for the paper doll, attributes, skills,
+The character panel (C) has tabs for the paper doll, status, skills,
 spellbook, inventory, allegiance and client settings. Settings (effect speed,
 view and detail distance, field of view, mouse sensitivity, chat timestamps)
 are remembered in the browser.

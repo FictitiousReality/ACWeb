@@ -382,6 +382,15 @@ $("loginForm").addEventListener("submit", async (ev) => {
           const t = m.moveTo.target ? netWorld?.positionOf(m.moveTo.target) : null;
           if (t) player.faceTowards(t.x, t.y, m.moveTo.heading); else player.faceHeading(m.moveTo.heading);
         }
+        // one-off animations the server plays on us: picking something up, dropping it, emotes
+        if (m.state) {
+          const fwd = m.state.forward ? commandFromKey(m.state.forward) : 0;
+          if (fwd && !PlayerController.isMovement(fwd)) player.playServerMotion(fwd, m.state.stance || m.stance);
+          for (const c of m.state.commands) {
+            const cmd = commandFromKey(c.command);
+            if (!PlayerController.isMovement(cmd)) player.playServerMotion(cmd, m.state.stance || m.stance);
+          }
+        }
         // the server echoes our movement with RunForward at our run rate: adopt it so we move as fast as it allows
         if (m.state && m.state.forward && commandFromKey(m.state.forward) === 0x44000007 && m.state.forwardSpeed > 0 && m.state.forwardSpeed !== player.runRate) {
           player.runRate = m.state.forwardSpeed;

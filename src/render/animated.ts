@@ -103,6 +103,23 @@ export class AnimatedModel {
     return [...out.values()];
   }
 
+  /**
+   * How long a motion's transition takes, in seconds. One-shot motions the server sends
+   * (pickup, drop, emotes) are this long; after that the character goes back to what it was doing.
+   */
+  async motionDuration(command: number, stance = this.stance): Promise<number> {
+    if (!this.motionTable) return 0;
+    const { link } = motionSegments(this.motionTable, stance, command, this.currentMotion);
+    let seconds = 0;
+    for (const d of link) {
+      const anim = await this.animation(d.animId);
+      if (!anim) continue;
+      const lo = d.lowFrame, hi = d.highFrame === -1 ? anim.numFrames - 1 : d.highFrame;
+      seconds += (hi - lo + 1) / Math.abs(d.framerate || 30);
+    }
+    return seconds;
+  }
+
   private velocityCache = new Map<number, Promise<[number, number, number]>>();
 
   /** Displacement per second (object space, +Y forward) produced by a motion's cycle at speed 1. */

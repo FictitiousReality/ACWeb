@@ -177,6 +177,29 @@ export class PlayerController {
     return true;
   }
 
+  /** movement commands we animate ourselves; anything else from the server is a one-off overlay */
+  private static readonly MOVEMENT_COMMANDS = new Set([0x03, 0x05, 0x06, 0x07, 0x0d, 0x0e, 0x0f, 0x10]);
+  /** seconds left of a one-off animation the server asked for */
+  private overlayLeft = 0;
+
+  /** True for a command the player controller drives from the keyboard. */
+  static isMovement(command: number): boolean {
+    return PlayerController.MOVEMENT_COMMANDS.has(command & 0xffff);
+  }
+
+  /**
+   * Play a motion the server sent us (picking something up, dropping it, an emote) on top of
+   * whatever we are doing, then let our own movement animation take over again.
+   */
+  async playServerMotion(command: number, stance?: number) {
+    if (!this.model || PlayerController.isMovement(command)) return;
+    const st = stance || this.model.stance;
+    const seconds = await this.model.motionDuration(command, st);
+    if (!await this.model.playMotion(command, st)) return;
+    this.overlayLeft = Math.max(0.3, seconds);
+    this.currentCommand = -1; // our own motion is re-applied once the overlay ends
+  }
+
   /** Face a world position (server TurnToObject), plus an optional heading offset in degrees. */
   faceTowards(x: number, y: number, offsetDeg = 0) {
     this.yaw = Math.atan2(-(x - this.pos.x), y - this.pos.y) - offsetDeg * Math.PI / 180;
@@ -253,6 +276,7 @@ export class PlayerController {
     if (sl && !sr) { vx -= fy * this.speeds.side * sideRate; vy += fx * this.speeds.side * sideRate; if (cmd === Cmd.Ready) { cmd = Cmd.SideStepLeft; animCmd = Cmd.SideStepRight; animSpeed = -sideRate; } }
     if (cmd === Cmd.Ready && left !== right) { cmd = left ? Cmd.TurnLeft : Cmd.TurnRight; animCmd = Cmd.TurnRight; animSpeed = left ? -turnSpeed : turnSpeed; }
 
+    const moving = vx !== 0 || vy !== 0 || cmd !== Cmd.Ready;
     if ((vx !== 0 || vy !== 0) && !this.noclip) [vx, vy] = this.slideAlongWalls(vx, vy, dt);
     if (this.jumpCharge !== null) this.jumpCharge = Math.min(1, this.jumpCharge + dt / PlayerController.JUMP_CHARGE_SECONDS);
     if (this.wantJump) { this.wantJump = false; this.beginJump(vx, vy, dt); }
@@ -296,7 +320,9 @@ export class PlayerController {
 
     if (this.model) {
       const animKey = animCmd * 8 + animSpeed;
-      if (!this.airborne && animKey !== this.currentCommand) {
+      // moving cancels a one-off animation, and so does its own length running out
+      if (this.overlayLeft > 0) this.overlayLeft = moving ? 0 : this.overlayLeft - dt;
+      if (!this.airborne && this.overlayLeft <= 0 && animKey !== this.currentCommand) {
         this.currentCommand = animKey;
         this.model.playMotion(animCmd, this.model.stance, animSpeed);
       }

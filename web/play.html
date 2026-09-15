@@ -72,6 +72,12 @@
     .kv span { text-align: right; }
     .kv .span2 { grid-column: 1 / -1; }
     .kv .spec { color: #8fd08f; }
+    .kv.act { grid-template-columns: 1fr auto auto; }
+    .raise { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; min-width: 64px; }
+    .raise i { font-style: normal; font-size: 10px; opacity: .55; }
+    .raise button { font: inherit; font-size: 11px; line-height: 1; padding: 2px 6px; border: 0; border-radius: 3px; background: #4a6b3f; color: #fff; cursor: pointer; }
+    .raise button:disabled { background: rgba(255,255,255,.08); color: #777; cursor: default; }
+    .raise.atcap { font-size: 10px; opacity: .45; }
     .doll { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
     .doll .slot { background: rgba(255,255,255,.05); border-radius: 4px; padding: 4px; text-align: center; }
     .doll .slot b { display: block; font-size: 9px; font-weight: normal; opacity: .55; margin-bottom: 2px; }

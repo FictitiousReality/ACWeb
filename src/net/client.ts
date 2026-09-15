@@ -11,11 +11,18 @@ import {
   buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
   buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote,
   buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
-  parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32,
+  parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32, gameActionU32x2,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
   type AllegianceProfile, type AllegianceMember, type SkillInfo,
 } from "./messages.ts";
+
+export type AttributeName = "strength" | "endurance" | "quickness" | "coordination" | "focus" | "self";
+export type VitalName = "health" | "stamina" | "mana";
+/** PropertyAttribute ids, by index */
+export const ATTRIBUTE_NAMES: (AttributeName | "")[] = ["", "strength", "endurance", "quickness", "coordination", "focus", "self"];
+/** PropertyAttribute2nd ids for the raise action */
+export const VITAL_IDS: Record<VitalName, number> = { health: 1, stamina: 3, mana: 5 };
 
 export interface VitalPair { current: number; max: number }
 export type { AllegianceProfile, AllegianceMember, SkillInfo };
@@ -230,6 +237,32 @@ export class GameClient {
 
   /** attributes (starting + ranks) and vitals, from the login description and later updates */
   attributes = { strength: 0, endurance: 0, quickness: 0, coordination: 0, focus: 0, self: 0 };
+  /** the same attributes with the detail needed to raise them: ranks bought, base and experience spent */
+  attributeInfo: Record<AttributeName, { ranks: number; starting: number; xp: number }> = {
+    strength: { ranks: 0, starting: 0, xp: 0 }, endurance: { ranks: 0, starting: 0, xp: 0 }, quickness: { ranks: 0, starting: 0, xp: 0 },
+    coordination: { ranks: 0, starting: 0, xp: 0 }, focus: { ranks: 0, starting: 0, xp: 0 }, self: { ranks: 0, starting: 0, xp: 0 },
+  };
+  /** vitals with their ranks and experience spent */
+  vitalInfo: Record<VitalName, { ranks: number; starting: number; xp: number }> = {
+    health: { ranks: 0, starting: 0, xp: 0 }, stamina: { ranks: 0, starting: 0, xp: 0 }, mana: { ranks: 0, starting: 0, xp: 0 },
+  };
+
+  /** Spend experience to raise an attribute (Strength 1 ... Self 6). */
+  raiseAttribute(attribute: number, xp: number) {
+    this.send(gameActionU32x2(GameActionType.RaiseAttribute, attribute, xp), Group.Weenie);
+  }
+  /** Spend experience to raise a vital (MaxHealth 1, MaxStamina 3, MaxMana 5). */
+  raiseVital(vital: number, xp: number) {
+    this.send(gameActionU32x2(GameActionType.RaiseVital, vital, xp), Group.Weenie);
+  }
+  /** Spend experience to raise a skill. */
+  raiseSkill(skill: number, xp: number) {
+    this.send(gameActionU32x2(GameActionType.RaiseSkill, skill, xp), Group.Weenie);
+  }
+  /** Spend skill credits to train a skill. */
+  trainSkill(skill: number, credits: number) {
+    this.send(gameActionU32x2(GameActionType.TrainSkill, skill, credits), Group.Weenie);
+  }
   /** skills by skill id; ranks + initLevel plus the dat formula give the effective value */
   skills = new Map<number, SkillInfo>();
   /** known spell ids (the dat spell table has names and icons) */
@@ -364,9 +397,14 @@ export class GameClient {
       }
       case 0x02e7: { // PrivateUpdateVital: ranks, starting, xp, current
         r.u8();
-        const vital = r.u32(), ranks = r.u32(), starting = r.u32(); r.u32(); const current = r.u32();
+        const vital = r.u32(), ranks = r.u32(), starting = r.u32(), xp = r.u32(), current = r.u32();
         const key = vital === 2 || vital === 1 ? "health" : vital === 4 || vital === 3 ? "stamina" : vital === 6 || vital === 5 ? "mana" : null;
-        if (key) { this.vitalBase[key] = { ranks, starting, current }; this.recomputeVitals(); }
+        if (key) {
+          this.vitalBase[key] = { ranks, starting, current };
+          this.vitalInfo[key] = { ranks, starting, xp };
+          this.recomputeVitals();
+          this.events.onCharacterData?.();
+        }
         break;
       }
       // our own property updates keep the status page live (burden, level, deaths...)
@@ -386,10 +424,14 @@ export class GameClient {
       }
       case 0x02e3: { // PrivateUpdateAttribute: ranks, starting, xp
         r.u8();
-        const attr = r.u32(), ranks = r.u32(), starting = r.u32();
-        const names = ["", "strength", "endurance", "quickness", "coordination", "focus", "self"] as const;
-        const key = names[attr];
-        if (key) { this.attributes[key] = ranks + starting; this.recomputeVitals(); this.events.onCharacterData?.(); }
+        const attr = r.u32(), ranks = r.u32(), starting = r.u32(), xp = r.u32();
+        const key = ATTRIBUTE_NAMES[attr];
+        if (key) {
+          this.attributes[key] = ranks + starting;
+          this.attributeInfo[key] = { ranks, starting, xp };
+          this.recomputeVitals();
+          this.events.onCharacterData?.();
+        }
         break;
       }
       case Opcode.PlayEffect: {
@@ -634,8 +676,18 @@ export class GameClient {
       case 0x0013: { // PlayerDescription: properties, attributes and vitals (skills/spells/enchantments not read)
         try {
           const d = parsePlayerDescription(r);
-          for (const [k, v] of Object.entries(d.attributes)) if (v) this.attributes[k as keyof typeof this.attributes] = v.ranks + v.starting;
-          for (const [k, v] of Object.entries(d.vitals)) if (v) this.vitalBase[k as keyof typeof this.vitalBase] = { ranks: v.ranks, starting: v.starting, current: v.current };
+          for (const [k, v] of Object.entries(d.attributes)) {
+            if (!v) continue;
+            const key = k as AttributeName;
+            this.attributes[key] = v.ranks + v.starting;
+            this.attributeInfo[key] = { ranks: v.ranks, starting: v.starting, xp: v.xp };
+          }
+          for (const [k, v] of Object.entries(d.vitals)) {
+            if (!v) continue;
+            const key = k as VitalName;
+            this.vitalBase[key] = { ranks: v.ranks, starting: v.starting, current: v.current };
+            this.vitalInfo[key] = { ranks: v.ranks, starting: v.starting, xp: v.xp };
+          }
           this.skills = d.skills;
           this.spells = d.spells;
           this.properties = d.properties;

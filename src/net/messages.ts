@@ -73,7 +73,7 @@ export const GameActionType = {
   PingRequest: 0x1e9,
   Jump: 0xf61b,
   MoveToState: 0xf61c,
-  AutonomousPosition: 0xf753, AllegianceUpdateRequest: 0x001f } as const;
+  AutonomousPosition: 0xf753, AllegianceUpdateRequest: 0x001f, RaiseVital: 0x0044, RaiseAttribute: 0x0045, RaiseSkill: 0x0046, TrainSkill: 0x0047 } as const;
 
 export interface Position {
   cell: number;
@@ -530,6 +530,13 @@ export function buildAutonomousPosition(pos: Position, seq: ObjectSequences, con
   w.u16(seq.instance).u16(seq.serverControl).u16(seq.teleport).u16(seq.forcePosition);
   w.u8(contact ? 1 : 0);
   w.align();
+  return w.toBytes();
+}
+
+/** A game action whose payload is two u32s (raise attribute / vital / skill, train skill). */
+export function gameActionU32x2(type: number, a: number, b: number): Uint8Array {
+  const w = gameAction(type);
+  w.u32(a).u32(b);
   return w.toBytes();
 }
 

@@ -5,8 +5,9 @@
  */
 import type { GameClient, WorldObject, AllegianceProfile } from "../src/net/client.ts";
 import type { Assets } from "../src/render/assets.ts";
-import { parseSkillTable, SKILLTABLE_ID, parseSpellTable, SPELLTABLE_ID } from "../src/dat/mod.ts";
-import type { SkillBase, SpellBase } from "../src/dat/mod.ts";
+import { parseSkillTable, SKILLTABLE_ID, parseSpellTable, SPELLTABLE_ID, parseXpTable, XPTABLE_ID, costOfNextRank } from "../src/dat/mod.ts";
+import type { SkillBase, SpellBase, XpTable } from "../src/dat/mod.ts";
+import { VITAL_IDS } from "../src/net/client.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -69,6 +70,7 @@ export function createCharacterPanel(deps: CharPanelDeps) {
   let tab: CharTab = "doll";
   let skillTable: Map<number, SkillBase> | null = null;
   let spellTable: Map<number, SpellBase> | null = null;
+  let xpTable: XpTable | null = null;
   let invSelected: number | null = null;
   let spellFilter = "";
 
@@ -80,6 +82,7 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     if (!a) return;
     if (!skillTable) skillTable = await a.portal.get(SKILLTABLE_ID, parseSkillTable);
     if (!spellTable) spellTable = await a.portal.get(SPELLTABLE_ID, parseSpellTable);
+    if (!xpTable) xpTable = await a.portal.get(XPTABLE_ID, parseXpTable);
   }
 
   function setTab(t: CharTab) {
@@ -151,6 +154,36 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     return [d && `${d}d`, (d || h) && `${h}h`, `${m}m`].filter(Boolean).join(" ");
   }
 
+  /** experience the character has left to spend */
+  function availableXp(c: GameClient): number { return c.properties.int64.get(2) ?? 0; }
+
+  /**
+   * "+" raises one rank, "max" spends everything it can. The server derives the new rank from
+   * the total experience put into the trait, so both are just an amount of experience to add.
+   */
+  function raiseControl(cost: number | null, toCap: number, available: number, spend: (xp: number) => void): HTMLElement {
+    const wrap = document.createElement("span");
+    wrap.className = "raise";
+    if (cost === null) { wrap.textContent = "max"; wrap.classList.add("atcap"); return wrap; }
+    const price = document.createElement("i");
+    price.textContent = cost.toLocaleString();
+    const one = document.createElement("button");
+    one.textContent = "+";
+    one.title = `raise one rank for ${cost.toLocaleString()} experience`;
+    one.disabled = available < cost;
+    one.onclick = () => spend(cost);
+    wrap.append(price, one);
+    const all = Math.min(available, toCap);
+    if (all > cost) {
+      const many = document.createElement("button");
+      many.textContent = "»";
+      many.title = `spend ${all.toLocaleString()} experience, as many ranks as that buys`;
+      many.onclick = () => spend(all);
+      wrap.append(many);
+    }
+    return wrap;
+  }
+
   function renderStatus() {
     const c = deps.client();
     const box = $("cp-status");
@@ -169,35 +202,65 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     const title = str.get(2);
     if (title) box.appendChild(Object.assign(document.createElement("p"), { className: "note", textContent: `"${title}"` }));
 
-    const section = (name: string) => {
+    const section = (name: string, withActions = false) => {
       box.appendChild(Object.assign(document.createElement("h4"), { textContent: name }));
       const kv = document.createElement("div");
-      kv.className = "kv";
+      kv.className = withActions ? "kv act" : "kv";
       box.appendChild(kv);
-      return (k: string, v: string | number | undefined | null) => {
+      return (k: string, v: string | number | undefined | null, action?: HTMLElement) => {
         if (v === undefined || v === null || v === "") return;
         const a = document.createElement("b"); a.textContent = k;
         const b = document.createElement("span"); b.textContent = String(v);
         kv.append(a, b);
+        if (withActions) kv.append(action ?? document.createElement("span"));
       };
     };
 
     const xp = section("Experience");
     xp("Total experience", i64.get(1)?.toLocaleString());
     xp("Unassigned experience", i64.get(2)?.toLocaleString());
+    if (xpTable && level && i64.get(1) !== undefined && level + 1 < xpTable.level.length) {
+      const have = i64.get(1)!, next = xpTable.level[level + 1], base = xpTable.level[level];
+      const pct = next > base ? Math.max(0, Math.min(100, Math.round((have - base) / (next - base) * 100))) : 0;
+      xp(`To level ${level + 1}`, `${Math.max(0, next - have).toLocaleString()} (${pct}%)`);
+    }
     const credits = int.get(24), totalCredits = int.get(23);
     xp("Skill credits", credits !== undefined ? `${credits}${totalCredits ? ` of ${totalCredits}` : ""}` : undefined);
     const lum = i64.get(6), maxLum = i64.get(7);
     if (maxLum) xp("Luminance", `${(lum ?? 0).toLocaleString()} / ${maxLum.toLocaleString()}`);
     xp("Enlightenment", int.get(390) || undefined);
 
-    const at = section("Attributes");
-    for (const [key, label] of [["strength", "Strength"], ["endurance", "Endurance"], ["coordination", "Coordination"], ["quickness", "Quickness"], ["focus", "Focus"], ["self", "Self"]] as const) at(label, c.attributes[key]);
+    const avail = availableXp(c);
+    const at = section("Attributes", !!xpTable);
+    const ATTRS = [["strength", "Strength", 1], ["endurance", "Endurance", 2], ["quickness", "Quickness", 3], ["coordination", "Coordination", 4], ["focus", "Focus", 5], ["self", "Self", 6]] as const;
+    for (const [key, label, id] of ATTRS) {
+      const info = c.attributeInfo[key];
+      let action: HTMLElement | undefined;
+      if (xpTable) {
+        const cost = costOfNextRank(xpTable.attribute, info.xp);
+        const toCap = xpTable.attribute[xpTable.attribute.length - 1] - info.xp;
+        action = raiseControl(cost, toCap, avail, (xp) => {
+          c.raiseAttribute(id, xp);
+          deps.log(`spending ${xp.toLocaleString()} experience on ${label}`, "c-system");
+        });
+      }
+      at(label, c.attributes[key], action);
+    }
 
-    const vt = section("Vitals");
-    vt("Health", `${c.vitals.health.current} / ${c.vitals.health.max}`);
-    vt("Stamina", `${c.vitals.stamina.current} / ${c.vitals.stamina.max}`);
-    vt("Mana", `${c.vitals.mana.current} / ${c.vitals.mana.max}`);
+    const vt = section("Vitals", !!xpTable);
+    for (const [key, label] of [["health", "Health"], ["stamina", "Stamina"], ["mana", "Mana"]] as const) {
+      const info = c.vitalInfo[key];
+      let action: HTMLElement | undefined;
+      if (xpTable) {
+        const cost = costOfNextRank(xpTable.vital, info.xp);
+        const toCap = xpTable.vital[xpTable.vital.length - 1] - info.xp;
+        action = raiseControl(cost, toCap, avail, (xp) => {
+          c.raiseVital(VITAL_IDS[key], xp);
+          deps.log(`spending ${xp.toLocaleString()} experience on maximum ${label}`, "c-system");
+        });
+      }
+      vt(label, `${c.vitals[key].current} / ${c.vitals[key].max}`, action);
+    }
 
     const bd = section("Burden");
     const burden = int.get(5);
@@ -255,13 +318,19 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     if (!c) { box.textContent = "not connected"; return; }
     if (!skillTable) { box.textContent = "loading skill names..."; return; }
     if (!c.skills.size) { box.textContent = "no skills yet (they arrive with the login description)"; return; }
+    const avail = availableXp(c);
+    const credits = c.properties.int.get(24) ?? 0;
+    const head = document.createElement("p");
+    head.className = "note";
+    head.textContent = `${avail.toLocaleString()} experience and ${credits} skill credit${credits === 1 ? "" : "s"} to spend`;
+    box.appendChild(head);
     const rows = [...c.skills.entries()]
       .map(([id, info]) => ({ id, info, base: skillTable!.get(id) }))
       .filter((r) => r.base && r.info.advancement > 1)
       .sort((a, b) => (a.base!.category - b.base!.category) || a.base!.name.localeCompare(b.base!.name));
     let category = -1;
     const table = document.createElement("div");
-    table.className = "kv skills";
+    table.className = "kv skills" + (xpTable ? " act" : "");
     for (const r of rows) {
       if (r.base!.category !== category) {
         category = r.base!.category;
@@ -278,14 +347,45 @@ export function createCharacterPanel(deps: CharPanelDeps) {
       val.textContent = `${v ?? "?"}${r.info.advancement === 3 ? "  (specialized)" : ""}`;
       if (r.info.advancement === 3) val.className = "spec";
       table.append(name, val);
+      if (xpTable) {
+        const ranksTable = r.info.advancement === 3 ? xpTable.specializedSkill : xpTable.trainedSkill;
+        const cost = costOfNextRank(ranksTable, r.info.xpSpent);
+        const toCap = ranksTable[ranksTable.length - 1] - r.info.xpSpent;
+        table.append(raiseControl(cost, toCap, avail, (xp) => {
+          c.raiseSkill(r.id, xp);
+          deps.log(`spending ${xp.toLocaleString()} experience on ${r.base!.name}`, "c-system");
+        }));
+      }
     }
     box.appendChild(table);
-    const untrained = [...c.skills.values()].filter((s) => s.advancement <= 1).length;
-    if (untrained) {
-      const note = document.createElement("p");
-      note.className = "note";
-      note.textContent = `${untrained} untrained skills not shown.`;
-      box.appendChild(note);
+    const untrained = [...c.skills.entries()]
+      .map(([id, info]) => ({ id, info, base: skillTable!.get(id) }))
+      .filter((r) => r.base && r.info.advancement <= 1 && r.base.trainedCost > 0)
+      .sort((a, b) => a.base!.name.localeCompare(b.base!.name));
+    if (untrained.length) {
+      box.appendChild(Object.assign(document.createElement("h4"), { textContent: "Untrained" }));
+      const ut = document.createElement("div");
+      ut.className = "kv act";
+      for (const r of untrained) {
+        const name = document.createElement("b");
+        name.textContent = r.base!.name;
+        name.title = r.base!.description;
+        const cost = document.createElement("span");
+        cost.textContent = `${r.base!.trainedCost} credit${r.base!.trainedCost === 1 ? "" : "s"}`;
+        const act = document.createElement("span");
+        act.className = "raise";
+        const btn = document.createElement("button");
+        btn.textContent = "train";
+        btn.disabled = credits < r.base!.trainedCost;
+        btn.title = `train ${r.base!.name} for ${r.base!.trainedCost} skill credits`;
+        btn.onclick = () => {
+          c.trainSkill(r.id, r.base!.trainedCost);
+          deps.log(`training ${r.base!.name} for ${r.base!.trainedCost} credits`, "c-system");
+        };
+        act.appendChild(btn);
+        ut.append(name, cost, act);
+      }
+      box.appendChild(ut);
     }
   }
 

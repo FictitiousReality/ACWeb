@@ -63,6 +63,9 @@ check the rules of any server before connecting to it.
   and rank, time played, birth date, deaths and PK status; trained skills with
   their effective values; the spellbook with icons and a filter; inventory;
   allegiance detail; and client settings.
+- **Spending experience**: raise attributes, vitals and skills from the panel,
+  one rank at a time or everything you can afford, with the cost shown from the
+  game's own experience tables; train untrained skills with skill credits.
 - **Vitals and combat feedback**: health, stamina and mana bars from the
   login description and live updates; a Combat chat tab for damage and spell
   messages; the selected target's health percentage.

@@ -15,3 +15,4 @@ export * from "./motionenums.ts";
 export * from "./records/chargen.ts";
 export * from "./records/particles.ts";
 export * from "./records/spells.ts";
+export * from "./records/xptable.ts";

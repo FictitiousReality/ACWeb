@@ -6,7 +6,7 @@ import { NetWorld, positionToWorld } from "../src/render/networld.ts";
 import { PlayerController } from "../src/render/player.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
 import { ParticleSystem } from "../src/render/particles.ts";
-import { createCharacterPanel, loadSettings, type SettingDef } from "./charpanel.ts";
+import { createCharacterPanel, loadSettings, itemAction, isOnGround, type SettingDef } from "./charpanel.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
@@ -505,7 +505,7 @@ function sendChat(text: string) {
   else if (cmd === "tr" || cmd === "trade") channelSay(3, rest);
   else if (cmd === "lfg") channelSay(4, rest);
   else if (cmd === "a" || cmd === "allegiance") { if (client.allegianceChannel) channelSay(client.allegianceChannel, rest); else log("you are not in an allegiance", "c-error"); }
-  else if (cmd === "use") { if (targetGuid) client.use(targetGuid); }
+  else if (cmd === "use") useTarget();
   else if (cmd === "blink") blink();
   else if (cmd === "resetui") resetUi();
   else if (cmd === "time") {
@@ -552,7 +552,7 @@ addEventListener("keydown", (e) => {
   else if (e.code === "KeyI") charPanel.toggle("items");
   else if (e.code === "KeyC") charPanel.toggle();
   else if (e.code === "Space") { e.preventDefault(); if (!e.repeat) player.startJumpCharge(); }
-  else if (e.code === "KeyU" && targetGuid && client) client.use(targetGuid);
+  else if (e.code === "KeyU") useTarget();
   else if (e.key === "Escape") { if (charPanel.isOpen()) $("char").classList.remove("show"); else setTarget(null); }
 });
 
@@ -614,8 +614,18 @@ function renderTarget() {
   const o = targetGuid !== null ? client?.objects.get(targetGuid) : null;
   $("target").classList.toggle("show", !!o);
   $("targetName").textContent = o ? `${o.name}${targetHealth !== null ? `  ${Math.round(targetHealth * 100)}%` : ""}` : "";
+  // loose items are picked up, not "used": using clothing does nothing on the server
+  $("btnUse").textContent = o && isOnGround(o) ? "Pick up (U)" : "Use (U)";
 }
-$("btnUse").addEventListener("click", () => { if (targetGuid && client) client.use(targetGuid); });
+
+/** Use the target, or pick it up when it is an item lying on the ground. */
+function useTarget() {
+  const o = targetGuid !== null ? client?.objects.get(targetGuid) : null;
+  if (!client || !o) return;
+  if (isOnGround(o)) { client.pickUp(o.guid); log(`picking up ${o.name}`, "c-system"); }
+  else client.use(o.guid);
+}
+$("btnUse").addEventListener("click", useTarget);
 function renderVitals(v: Vitals) {
   const box = $("vitals");
   box.style.display = "block";

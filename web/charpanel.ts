@@ -11,6 +11,47 @@ import { VITAL_IDS } from "../src/net/client.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+/** paired equipment slots: wear the item on whichever side is free */
+const PAIRED_SLOTS = [[0x00010000, 0x00020000], [0x00040000, 0x00080000]];
+
+/**
+ * Where to wear an item. Clothing and armor use their whole coverage mask; for wrists and
+ * rings, which have a left and a right, the free side is chosen.
+ */
+export function wieldLocationFor(item: WorldObject, worn: WorldObject[]): number {
+  const valid = item.validLocations ?? 0;
+  for (const pair of PAIRED_SLOTS) {
+    if ((valid & (pair[0] | pair[1])) === (pair[0] | pair[1])) {
+      return pair.find((bit) => !worn.some((w) => w.wieldedLocation & bit)) ?? pair[0];
+    }
+  }
+  return valid;
+}
+
+/**
+ * True for a loose item lying in the world. Only dynamically created objects can be picked
+ * up; doors, chests and other fixtures placed in the landblock have low guids and are stuck,
+ * and creatures are not items.
+ */
+export function isOnGround(o: WorldObject): boolean {
+  return o.guid >= 0x80000000 && o.container === null && o.wielder === null && !!o.position;
+}
+
+/**
+ * What double-clicking an item should do: take it off, pick it up, wear it, or use it.
+ * Using clothing does nothing on the server ("ActOnUse ... undefined"), so equippable items
+ * must be wielded instead.
+ */
+export function itemAction(c: GameClient, o: WorldObject): { verb: string; run(): void } {
+  if (o.wielder === c.playerGuid) return { verb: "unequip", run: () => c.pickUp(o.guid) };
+  if (isOnGround(o)) return { verb: "pick up", run: () => c.pickUp(o.guid) };
+  if (o.validLocations) {
+    const worn = [...c.objects.values()].filter((w) => w.wielder === c.playerGuid);
+    return { verb: "equip", run: () => c.wield(o.guid, wieldLocationFor(o, worn)) };
+  }
+  return { verb: "use", run: () => c.use(o.guid) };
+}
+
 export type CharTab = "doll" | "status" | "skills" | "spells" | "items" | "alleg" | "settings";
 
 /** A client-side setting rendered as a control on the Settings tab and kept in localStorage. */
@@ -129,7 +170,8 @@ export function createCharacterPanel(deps: CharPanelDeps) {
       cell.appendChild(label);
       if (item) {
         const t = tile(item.icon, item.name);
-        t.ondblclick = () => c.use(item.guid);
+        t.title = `${item.name} — double-click to take off`;
+        t.ondblclick = () => { itemAction(c, item).run(); deps.log(`taking off ${item.name}`, "c-system"); };
         cell.appendChild(t);
       } else {
         const empty = document.createElement("div");
@@ -141,7 +183,7 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     box.appendChild(grid);
     const note = document.createElement("p");
     note.className = "note";
-    note.textContent = worn.length ? "Double-click an item to use or unequip it." : "Nothing equipped.";
+    note.textContent = worn.length ? "Double-click an item to take it off." : "Nothing equipped.";
     box.appendChild(note);
   }
 
@@ -437,10 +479,15 @@ export function createCharacterPanel(deps: CharPanelDeps) {
       row.append(img, name);
       if (o.wielder) { const eq = document.createElement("span"); eq.className = "eq"; eq.textContent = "(worn)"; row.append(eq); }
       row.onclick = () => { invSelected = o.guid; renderItems(); };
-      row.ondblclick = () => c.use(o.guid);
+      row.ondblclick = () => { const a = itemAction(c, o); a.run(); deps.log(`${a.verb} ${o.name}`, "c-system"); };
+      row.title = `${o.name} — double-click to ${itemAction(c, o).verb}`;
       box.appendChild(row);
     }
     if (!items.length) box.textContent = "(empty)";
+    const sel = invSelected ? c.objects.get(invSelected) : null;
+    const equip = $<HTMLButtonElement>("itemEquip");
+    equip.textContent = sel?.wielder === c.playerGuid ? "Unequip" : "Equip";
+    equip.disabled = !sel || (!sel.validLocations && sel.wielder !== c.playerGuid);
   }
 
   function renderAllegiance(a: AllegianceProfile | null) {
@@ -535,6 +582,13 @@ export function createCharacterPanel(deps: CharPanelDeps) {
   }
   $("charClose").onclick = () => panel.classList.remove("show");
   $("itemUse").onclick = () => { if (invSelected) deps.client()?.use(invSelected); };
+  $("itemEquip").onclick = () => {
+    const c = deps.client(), o = invSelected ? c?.objects.get(invSelected) : null;
+    if (!c || !o) return;
+    const a = itemAction(c, o);
+    a.run();
+    deps.log(`${a.verb} ${o.name}`, "c-system");
+  };
   $("itemDrop").onclick = () => { if (invSelected) deps.client()?.drop(invSelected); };
   $("itemGive").onclick = () => {
     const c = deps.client(), target = deps.targetGuid();

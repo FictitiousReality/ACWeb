@@ -63,6 +63,8 @@ check the rules of any server before connecting to it.
   and rank, time played, birth date, deaths and PK status; trained skills with
   their effective values; the spellbook with icons and a filter; inventory;
   allegiance detail; and client settings.
+- **Items**: pick up from the ground, equip, unequip, use, give and drop, with
+  the right action chosen for what the item is.
 - **Spending experience**: raise attributes, vitals and skills from the panel,
   one rank at a time or everything you can afford, with the cost shown from the
   game's own experience tables; train untrained skills with skill credits.
@@ -159,7 +161,7 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Mouse drag | orbit the camera; wheel zooms |
 | Click an object | target it (name and Use / Give buttons appear) |
 | Space (hold) | charge a jump: a bar fills over a second; release to jump with that power (jump height uses a Jump skill pinned at 750 for now) |
-| U | use the target |
+| U | use the target, or pick it up when it is an item on the ground |
 | C | open or close the character panel |
 | I | the character panel's Inventory tab |
 | Enter | focus the chat box; Escape leaves it or clears the target |

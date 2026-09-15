@@ -9,7 +9,7 @@ import { NetSession, RelayTransport, type GameMessage, type SessionState } from 
 import {
   buildAutonomousPosition, buildCharacterEnterWorld, buildCharacterEnterWorldRequest, buildDDDResponse, buildLoginComplete,
   buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
-  buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildIdentify, buildTell, buildEmote, buildSoulEmote,
+  buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildGetAndWield, buildIdentify, buildTell, buildEmote, buildSoulEmote,
   buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
   parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32, gameActionU32x2,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
@@ -50,6 +50,8 @@ export interface WorldObject {
   container: number | null;
   wielder: number | null;
   wieldedLocation: number;
+  /** EquipMask slots this item may be worn in (0 when it cannot be equipped) */
+  validLocations: number;
   stackSize: number;
   value: number;
   icon: number;
@@ -213,6 +215,19 @@ export class GameClient {
   drop(item: number) {
     this.send(buildDrop(item), Group.Weenie);
   }
+  /** Wear or wield an item (also used to move it between equipment slots). */
+  wield(item: number, location: number) {
+    this.send(buildGetAndWield(item, location), Group.Weenie);
+  }
+
+  /**
+   * Pick an item up off the ground, or take it off and put it in a pack. Both are the same
+   * action: move the item into our own container. The server walks us to it first.
+   */
+  pickUp(item: number) {
+    this.putInContainer(item, this.playerGuid);
+  }
+
   putInContainer(item: number, container: number, placement = 0) {
     this.send(buildPutInContainer(item, container, placement), Group.Weenie);
   }
@@ -369,6 +384,7 @@ export class GameClient {
           scale: co.physics.scale ?? 1, position: co.physics.position ?? null, parent: co.physics.parent?.id ?? co.weenie.wielder ?? co.weenie.container ?? null,
           held: !!co.physics.parent, parentLocation: co.physics.parent?.location ?? 0, placement: co.physics.placement ?? 0,
           container: co.weenie.container ?? null, wielder: co.weenie.wielder ?? null, wieldedLocation: co.weenie.wieldedLocation ?? 0,
+          validLocations: co.weenie.validLocations ?? 0,
           stackSize: co.weenie.stackSize ?? 1, value: co.weenie.value ?? 0, icon: co.weenie.icon,
           objectFlags: co.weenie.objectFlags, itemType: co.weenie.itemType, movement: co.physics.movement, raw: co,
         };

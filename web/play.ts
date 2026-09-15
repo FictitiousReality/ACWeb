@@ -562,7 +562,7 @@ addEventListener("keydown", (e) => {
   else if (e.code === "KeyC") charPanel.toggle();
   else if (e.code === "Space") { e.preventDefault(); if (!e.repeat) player.startJumpCharge(); }
   else if (e.code === "KeyU") useTarget();
-  else if (e.key === "Escape") { if (charPanel.isOpen()) $("char").classList.remove("show"); else setTarget(null); }
+  else if (e.key === "Escape") { if (charPanel.isOpen()) charPanel.close(); else setTarget(null); }
 });
 
 addEventListener("keyup", (e) => {
@@ -602,9 +602,9 @@ function makeDraggable(id: string, handleSel?: string) {
     e.preventDefault();
   });
 }
-for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"]] as [string, string?][]) makeDraggable(id, handle);
+for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"], ["panelbar"]] as [string, string?][]) makeDraggable(id, handle);
 function resetUi() {
-  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools"]) {
+  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools", "panelbar"]) {
     try { localStorage.removeItem(PANEL_STORE + id); } catch { /* ignore */ }
     const el = $(id); el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; el.style.marginLeft = "";
   }
@@ -703,7 +703,15 @@ const charPanel = createCharacterPanel({
   log,
   targetGuid: () => targetGuid,
   settings: settingDefs,
+  onChange: (open, tab) => {
+    for (const b of document.querySelectorAll<HTMLButtonElement>("#panelbar button[data-panel]")) {
+      b.classList.toggle("active", open && b.dataset.panel === tab);
+    }
+  },
 });
+for (const b of document.querySelectorAll<HTMLButtonElement>("#panelbar button[data-panel]")) {
+  b.onclick = () => { charPanel.toggle(b.dataset.panel as Parameters<typeof charPanel.toggle>[0]); b.blur(); };
+}
 document.addEventListener("acweb-resetui", () => resetUi());
 
 // ---------- frame loop ----------

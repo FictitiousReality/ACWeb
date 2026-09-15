@@ -74,6 +74,8 @@ export interface CharPanelDeps {
   log(line: string, cls?: string): void;
   targetGuid(): number | null;
   settings: SettingDef[];
+  /** called whenever the panel opens, closes or changes tab, so a launcher can highlight the right button */
+  onChange?(open: boolean, tab: CharTab): void;
 }
 
 /** equipment slots in the order they are drawn, with the EquipMask bits each covers */
@@ -128,6 +130,7 @@ export function createCharacterPanel(deps: CharPanelDeps) {
 
   function setTab(t: CharTab) {
     tab = t;
+    deps.onChange?.(isOpen(), tab);
     for (const b of panel.querySelectorAll<HTMLButtonElement>("#charTabs button[data-ctab]")) b.classList.toggle("active", b.dataset.ctab === t);
     for (const p of panel.querySelectorAll<HTMLElement>(".cpane")) p.classList.toggle("active", p.id === `cp-${t}`);
     render();
@@ -137,6 +140,12 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     const wantOpen = t !== undefined ? !(isOpen() && tab === t) : !isOpen();
     panel.classList.toggle("show", wantOpen);
     if (wantOpen) { if (t) setTab(t); else render(); }
+    deps.onChange?.(isOpen(), tab);
+  }
+
+  function close() {
+    panel.classList.remove("show");
+    deps.onChange?.(false, tab);
   }
 
   /** An icon tile with a name, used by the doll, inventory and spellbook. */
@@ -580,7 +589,7 @@ export function createCharacterPanel(deps: CharPanelDeps) {
   for (const b of panel.querySelectorAll<HTMLButtonElement>("#charTabs button[data-ctab]")) {
     b.onclick = () => setTab(b.dataset.ctab as CharTab);
   }
-  $("charClose").onclick = () => panel.classList.remove("show");
+  $("charClose").onclick = close;
   $("itemUse").onclick = () => { if (invSelected) deps.client()?.use(invSelected); };
   $("itemEquip").onclick = () => {
     const c = deps.client(), o = invSelected ? c?.objects.get(invSelected) : null;
@@ -599,7 +608,7 @@ export function createCharacterPanel(deps: CharPanelDeps) {
     deps.log(`giving ${item?.name ?? "item"} to ${c.objects.get(target)?.name ?? "target"}...`, "c-system");
   };
 
-  return { toggle, setTab, render, isOpen, get tab() { return tab; } };
+  return { toggle, setTab, close, render, isOpen, get tab() { return tab; } };
 }
 
 const SETTING_STORE = "acweb.set.";

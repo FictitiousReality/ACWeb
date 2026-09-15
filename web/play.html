@@ -13,7 +13,7 @@
     #login input, #login button { font: inherit; padding: 6px 8px; }
     #chars { display: grid; gap: 4px; }
     #chars button { text-align: left; }
-    #hud { position: fixed; left: 10px; bottom: 10px; width: 600px; z-index: 3; display: none; }
+    #hud { position: fixed; left: 10px; bottom: 10px; width: min(600px, calc(100vw - 480px)); min-width: 320px; z-index: 3; display: none; }
     #hud.show { display: block; }
     #chattabs { display: flex; gap: 2px; background: rgba(0,0,0,.45); border-radius: 6px 6px 0 0; padding: 4px 6px 0; }
     #chattabs button { font: inherit; font-size: 12px; background: rgba(255,255,255,.08); color: #ccc; border: 0; border-radius: 4px 4px 0 0; padding: 3px 10px; cursor: pointer; }
@@ -102,6 +102,10 @@
     .setting small { grid-column: 1 / -1; opacity: .5; font-size: 10px; }
     .setting input[type=checkbox] { justify-self: start; }
     .motd { font-size: 12px; font-style: italic; opacity: .85; margin: 6px 0; }
+    #panelbar { position: fixed; right: 10px; bottom: 10px; z-index: 4; display: flex; align-items: center; gap: 3px; background: rgba(0,0,0,.55); border-radius: 6px; padding: 4px 6px; cursor: move; white-space: nowrap; }
+    #panelbar button { font: inherit; font-size: 11px; background: rgba(255,255,255,.1); color: #ddd; border: 0; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+    #panelbar button:hover { background: rgba(255,255,255,.2); }
+    #panelbar button.active { background: #dfc98a; color: #222; }
     #status { position: fixed; top: 8px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; opacity: .85; z-index: 3; white-space: pre; }
     #tools { position: fixed; top: 8px; right: 10px; z-index: 3; background: rgba(0,0,0,.35); padding: 3px 4px; border-radius: 6px; cursor: move; white-space: nowrap; }
     .grip { display: inline-block; color: #999; padding: 0 6px; cursor: move; user-select: none; font-size: 12px; }
@@ -136,6 +140,16 @@
     </form>
   </div>
   <div id="status"></div>
+  <div id="panelbar">
+    <span class="grip" title="drag">⋮⋮</span>
+    <button type="button" data-panel="doll" title="equipped items (C)">Character</button>
+    <button type="button" data-panel="status" title="level, experience, burden and more">Status</button>
+    <button type="button" data-panel="skills" title="skills and training">Skills</button>
+    <button type="button" data-panel="spells" title="spellbook">Spells</button>
+    <button type="button" data-panel="items" title="inventory (I)">Items</button>
+    <button type="button" data-panel="alleg" title="allegiance">Allegiance</button>
+    <button type="button" data-panel="settings" title="client settings">Settings</button>
+  </div>
   <div id="jumpbar"><div></div></div>
   <div id="vitals">
     <div class="vital"><div class="bar hp"></div><span>Health</span><em id="vHealth">-</em></div>

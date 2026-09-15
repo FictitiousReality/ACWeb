@@ -167,7 +167,8 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Enter | focus the chat box; Escape leaves it or clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
-The character panel (C) has tabs for the paper doll, status, skills,
+A row of buttons in the bottom right opens each panel, and highlights the one
+you are looking at. The character panel (C) has tabs for the paper doll, status, skills,
 spellbook, inventory, allegiance and client settings. Settings (effect speed,
 view and detail distance, field of view, mouse sensitivity, chat timestamps)
 are remembered in the browser.

@@ -29,6 +29,11 @@ for (const line of text.split("\n")) {
     } else if (op === Opcode.UpdatePosition) {
       const u = parseUpdatePosition(r);
       console.log(`${rel} pos ${names.get(u.guid) ?? u.guid.toString(16)} cell=${u.position.cell.toString(16)} ${u.position.x.toFixed(1)},${u.position.y.toFixed(1)},${u.position.z.toFixed(1)} flags=${u.flags.toString(16)}${u.velocity ? ` vel=${u.velocity.map((v) => v.toFixed(2))}` : ""}`);
+    } else if (op === Opcode.GameEvent) {
+      r.u32(); r.u32(); // recipient, sequence
+      const type = r.u32();
+      const first = r.pos + 4 <= data.length ? r.u32() : 0;
+      console.log(`${rel} event 0x${type.toString(16).padStart(4, "0")}${type === 0x01c7 ? ` use done code=0x${first.toString(16)}` : ""} (${data.length} bytes)`);
     } else console.log(`${rel} op=${opHex} ${err} ${data.length} bytes`);
   } catch (e) {
     console.log(`${rel} op=${opHex} PARSE FAILED: ${(e as Error).message} ${err} hex=${hex.slice(0, 160)}`);

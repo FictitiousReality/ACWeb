@@ -660,6 +660,7 @@ export class GameClient {
   }
 
   private handleGameEvent(type: number, r: BinReader) {
+    if (this.session?.debug && type !== 0x01c7) this.log(`<< game event 0x${type.toString(16).padStart(4, "0")}`);
     switch (type) {
       case 0x0004: // PopupString
       case 0x02eb: { // CommunicationTransientString
@@ -715,8 +716,6 @@ export class GameClient {
         this.events.onError?.(name && !name.endsWith("_") ? `${text} ${humanize(name)}` : text);
         break;
       }
-      case 0x01c7: // UseDone
-        break;
       case 0x0295: { // SetTurbineChatChannels: allegiance, general, trade, lfg, roleplay, olthoi, society...
         this.allegianceChannel = r.u32();
         this.events.onLog?.(`chat channels ready (allegiance ${this.allegianceChannel || "none"})`);
@@ -762,6 +761,7 @@ export class GameClient {
       }
       case 0x01c7: { // UseDone: an action (a cast, a use) finished; 0 = success, else a WeenieError
         const code = r.u32();
+        if (this.session?.debug) this.log(`use done: ${code ? `0x${code.toString(16)} ${WeenieErrorNames[code] ?? ""}` : "ok"}`);
         this.events.onUseDone?.(code, code ? humanize(WeenieErrorNames[code] ?? `error ${code}`) : "");
         break;
       }

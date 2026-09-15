@@ -418,7 +418,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       client.session!.debug = true;
       // post raw movement messages to the dev server (captures.log) so they can be decoded offline
       const queue: string[] = [];
-      client.captureOpcodes = new Set([Opcode.Motion, Opcode.UpdatePosition, Opcode.ObjectCreate, Opcode.UpdateObject]);
+      client.captureOpcodes = new Set([Opcode.Motion, Opcode.UpdatePosition, Opcode.ObjectCreate, Opcode.UpdateObject, Opcode.GameEvent]);
       client.onCapture = (op, data, err) => {
         const hex = Array.from(data.subarray(0, 600), (b) => b.toString(16).padStart(2, "0")).join("");
         queue.push(`${Date.now()} ${op.toString(16)} ${err ? "ERR:" + err.replace(/\s+/g, "_") : "-"} ${hex}`);

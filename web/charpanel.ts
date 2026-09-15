@@ -34,7 +34,11 @@ export function wieldLocationFor(item: WorldObject, worn: WorldObject[]): number
  * and creatures are not items.
  */
 export function isOnGround(o: WorldObject): boolean {
-  return o.guid >= 0x80000000 && o.container === null && o.wielder === null && !!o.position;
+  // Stuck is what the server sets on anything rooted in the world - NPCs, doors, lifestones,
+  // forges - and creatures are never loot, so neither is ours to pick up however it is lying there.
+  const STUCK = 0x4, CREATURE = 0x10; // ObjectDescriptionFlag.Stuck, ItemType.Creature
+  return o.guid >= 0x80000000 && o.container === null && o.wielder === null && !!o.position &&
+    (o.objectFlags & STUCK) === 0 && (o.itemType & CREATURE) === 0;
 }
 
 /**

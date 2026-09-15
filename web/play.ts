@@ -8,11 +8,12 @@ import { AnimatedModel } from "../src/render/animated.ts";
 import { ParticleSystem } from "../src/render/particles.ts";
 import { createCharacterPanel, loadSettings, itemAction, isOnGround, type SettingDef } from "./charpanel.ts";
 import { createSpellBar } from "./spellbar.ts";
+import { createBuffs } from "./buffs.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
-import { CHARGEN_ID, SKILLTABLE_ID, SPELLTABLE_ID, parseCharGen, parseSkillTable, parseSpellTable } from "../src/dat/mod.ts";
-import type { CharGen, SkillBase, SpellBase } from "../src/dat/mod.ts";
+import { CHARGEN_ID, SKILLTABLE_ID, SPELLTABLE_ID, SPELLCOMPONENTS_ID, parseCharGen, parseSkillTable, parseSpellTable, parseSpellComponentTable, castGestures } from "../src/dat/mod.ts";
+import type { CharGen, SkillBase, SpellBase, SpellComponent } from "../src/dat/mod.ts";
 import { Opcode } from "../src/net/messages.ts";
 import { commandFromKey, MotionCommandNames } from "../src/dat/motionenums.ts";
 
@@ -194,6 +195,7 @@ let iterations = { portal: 2072, cell: 982, language: 994 };
 let charGen: CharGen | null = null;
 let skillTable: Map<number, SkillBase> | null = null;
 let spellTable: Map<number, SpellBase> | null = null;
+let spellComponents: Map<number, SpellComponent> | null = null;
 
 async function openDats() {
   log("opening dats over HTTP...");
@@ -230,6 +232,7 @@ async function openDats() {
   scene.add(netWorld.group);
   loadSettings(settingDefs); // stored view distance, effect speed, field of view...
   spellTable = await assets.portal.get(SPELLTABLE_ID, parseSpellTable); // names, icons and flags for the spell bar
+  spellComponents = await assets.portal.get(SPELLCOMPONENTS_ID, parseSpellComponentTable); // cast gestures
   sky = new SkyRenderer(assets, region);
   await sky.build();
   scene.background = null;
@@ -363,6 +366,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onVitals: (v) => { renderVitals(v); charPanel.render(); },
       onCharacterData: () => { charPanel.render(); spellBar.render(); },
       onUseDone: (code, text) => spellBar.onUseDone(code, text),
+      onEnchantments: () => buffs.render(),
       onAllegiance: () => charPanel.render(),
       onTargetHealth: (g, f) => { if (g === targetGuid) { targetHealth = f; renderTarget(); } },
       onCharacterList: showCharacters,
@@ -413,6 +417,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
         } else netWorld?.create(o).then((e) => { if (e) e.root.userData.guid = o.guid; });
       },
     });
+    client.spellIsBeneficial = (id) => ((spellTable?.get(id)?.bitfield ?? 0) & 0x4) !== 0;
     client.connect(host, port, account, password);
     if (debugMode) {
       client.session!.debug = true;
@@ -591,7 +596,7 @@ function makeDraggable(id: string, handleSel?: string) {
   } catch { /* storage unavailable */ }
   handle.addEventListener("pointerdown", (e: PointerEvent) => {
     const t = e.target as HTMLElement;
-    if (t.closest("button, input, select, textarea, a, .chatlog, .inv-item")) return;
+    if (t.closest("button, input, select, textarea, a, .chatlog, .inv-item, #buffList")) return;
     if (e.button !== 0) return;
     const rect = el.getBoundingClientRect();
     const offX = e.clientX - rect.left, offY = e.clientY - rect.top;
@@ -730,7 +735,14 @@ const spellBar = createSpellBar({
   icon,
   targetGuid: () => targetGuid,
   log,
+  onCastStart: (id) => {
+    const s = spellTable?.get(id);
+    if (!s || !spellComponents || !player) return;
+    const g = castGestures(s, spellComponents);
+    player.playCastGestures([...g.windup, ...(g.cast ? [g.cast] : [])]);
+  },
 });
+const buffs = createBuffs({ client: () => client, spell: (id) => spellTable?.get(id), icon });
 document.addEventListener("acweb-resetui", () => resetUi());
 
 // ---------- frame loop ----------
@@ -757,6 +769,7 @@ function frame(now: number) {
   netWorld?.update(dt);
   particles?.update(dt);
   spellBar.tick(dt);
+  buffs.tick(dt);
   if (player) {
     const jb = $("jumpbar");
     const c = player.jumpCharge;

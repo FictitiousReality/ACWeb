@@ -12,6 +12,7 @@ import {
   buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildGetAndWield, buildIdentify, buildTell, buildEmote, buildSoulEmote,
   buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
   parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32, gameActionU32x2, gameActionU32x3,
+  readEnchantment, readEnchantmentList, readLayeredSpells,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
   type AllegianceProfile, type AllegianceMember, type SkillInfo, type EnchantmentInfo,
@@ -92,6 +93,8 @@ export interface ClientEvents {
   onVitals?(v: Vitals): void;
   /** attributes, skills or the spellbook changed (also fired once after login) */
   onCharacterData?(): void;
+  /** spells on us were added, refreshed, removed, dispelled or purged */
+  onEnchantments?(): void;
   /** the server finished (or refused) an action such as a cast: 0 means success */
   onUseDone?(code: number, text: string): void;
   /** our allegiance profile arrived */
@@ -288,8 +291,19 @@ export class GameClient {
   properties = { int: new Map<number, number>(), int64: new Map<number, number>(), bool: new Map<number, boolean>(), float: new Map<number, number>(), string: new Map<number, string>() };
   /** the eight saved spell bars (spell ids in order), from the login description */
   spellBars: number[][] = [[], [], [], [], [], [], [], []];
-  /** enchantments on us at login */
+  /** enchantments on us, kept current by the MagicUpdate / Remove / Dispel / Purge events */
   enchantments: EnchantmentInfo[] = [];
+  /** set by the page from the spell table, so "purge bad enchantments" knows which to drop */
+  spellIsBeneficial: ((spellId: number) => boolean) | null = null;
+
+  private upsertEnchantment(e: EnchantmentInfo) {
+    e.receivedAt = performance.now() / 1000;
+    const i = this.enchantments.findIndex((x) => x.spellId === e.spellId && x.layer === e.layer);
+    if (i >= 0) this.enchantments[i] = e; else this.enchantments.push(e);
+  }
+  private removeEnchantment(spellId: number, layer: number) {
+    this.enchantments = this.enchantments.filter((x) => !(x.spellId === spellId && x.layer === layer));
+  }
 
   /** 1 non-combat, 2 melee, 4 missile, 8 magic (PropertyInt 40, kept current by property updates) */
   get combatMode(): number { return this.properties.int.get(40) ?? 1; }
@@ -741,6 +755,8 @@ export class GameClient {
           this.properties = d.properties;
           this.spellBars = d.spellBars;
           this.enchantments = d.enchantments;
+          for (const e of this.enchantments) e.receivedAt = performance.now() / 1000;
+          this.events.onEnchantments?.();
           this.recomputeVitals();
           this.events.onCharacterData?.();
           this.log(`character data: ${this.skills.size} skills, ${this.spells.length} spells`);
@@ -763,6 +779,28 @@ export class GameClient {
         const code = r.u32();
         if (this.session?.debug) this.log(`use done: ${code ? `0x${code.toString(16)} ${WeenieErrorNames[code] ?? ""}` : "ok"}`);
         this.events.onUseDone?.(code, code ? humanize(WeenieErrorNames[code] ?? `error ${code}`) : "");
+        break;
+      }
+      case 0x02c2: { this.upsertEnchantment(readEnchantment(r)); this.events.onEnchantments?.(); break; } // MagicUpdateEnchantment
+      case 0x02c4: { for (const e of readEnchantmentList(r)) this.upsertEnchantment(e); this.events.onEnchantments?.(); break; } // ...Multiple
+      case 0x02c3:   // MagicRemoveEnchantment
+      case 0x02c7: { // MagicDispelEnchantment
+        const spellId = r.u16(), layer = r.u16();
+        this.removeEnchantment(spellId, layer);
+        this.events.onEnchantments?.();
+        break;
+      }
+      case 0x02c5:   // MagicRemoveMultipleEnchantments
+      case 0x02c8: { // MagicDispelMultipleEnchantments
+        for (const l of readLayeredSpells(r)) this.removeEnchantment(l.spellId, l.layer);
+        this.events.onEnchantments?.();
+        break;
+      }
+      case 0x02c6: { this.enchantments = []; this.events.onEnchantments?.(); break; } // MagicPurgeEnchantments
+      case 0x0312: { // MagicPurgeBadEnchantments: keep only the beneficial ones
+        const good = this.spellIsBeneficial;
+        if (good) this.enchantments = this.enchantments.filter((e) => good(e.spellId));
+        this.events.onEnchantments?.();
         break;
       }
       case 0x02c1: { // MagicUpdateSpell: a spell was learned

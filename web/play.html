@@ -119,6 +119,15 @@
     .spellrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
     .spellrow button { font: inherit; font-size: 11px; line-height: 1; padding: 2px 7px; border: 0; border-radius: 3px; background: #4a6b3f; color: #fff; cursor: pointer; }
     #sbStatus { font-size: 11px; opacity: .85; margin-top: 3px; min-height: 14px; }
+    #btnBuffs { font: inherit; font-size: 12px; margin-right: 4px; background: rgba(255,255,255,.12); color: #bbb; border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+    #btnBuffs.has { background: #3f5f8f; color: #fff; }
+    #buffList { display: none; position: absolute; right: 0; top: calc(100% + 4px); width: 290px; max-height: 60vh; overflow-y: auto; background: rgba(0,0,0,.86); border-radius: 6px; padding: 6px 8px; font-size: 12px; cursor: default; white-space: normal; }
+    #buffList.show { display: block; }
+    #buffList .buff { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+    #buffList .buff img { width: 20px; height: 20px; image-rendering: pixelated; flex: none; }
+    #buffList .buff .t { margin-left: auto; font-family: ui-monospace, monospace; opacity: .85; flex: none; }
+    #buffList .buff.surpassed { opacity: .45; }
+    #buffList .buff.low .t { color: #ffb070; }
     #panelbar { position: fixed; right: 10px; bottom: 10px; z-index: 4; display: flex; align-items: center; gap: 3px; background: rgba(0,0,0,.55); border-radius: 6px; padding: 4px 6px; cursor: move; white-space: nowrap; }
     #panelbar button { font: inherit; font-size: 11px; background: rgba(255,255,255,.1); color: #ddd; border: 0; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
     #panelbar button:hover { background: rgba(255,255,255,.2); }
@@ -178,7 +187,7 @@
     <div class="vital"><div class="bar st"></div><span>Stamina</span><em id="vStamina">-</em></div>
     <div class="vital"><div class="bar mn"></div><span>Mana</span><em id="vMana">-</em></div>
   </div>
-  <div id="tools"><span class="grip" title="drag">⋮⋮</span><button id="btnBlink" type="button" title="jump one landblock in the direction you face (/blink)">Blink ▶</button></div>
+  <div id="tools"><span class="grip" title="drag">⋮⋮</span><button id="btnBuffs" type="button" title="active buffs">✦ 0</button><button id="btnBlink" type="button" title="jump one landblock in the direction you face (/blink)">Blink ▶</button><div id="buffList"></div></div>
   <div id="target"><span id="targetName"></span><button id="btnUse" type="button">Use (U)</button><button id="btnGive" type="button">Give item</button><button id="btnClear" type="button">×</button></div>
   <div id="char">
     <div id="charTabs">

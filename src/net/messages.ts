@@ -725,6 +725,33 @@ export interface PlayerDescription {
   /** the eight saved spell bars (spell ids in order) */
   spellBars: number[][];
 }
+/** One enchantment as the server sends it (login registry and the MagicUpdate events). */
+export function readEnchantment(r: BinReader): EnchantmentInfo {
+  const spellId = r.u16(), layer = r.u16(), category = r.u16(), hasSet = r.u16();
+  const power = r.u32(), startTime = r.f64(), duration = r.f64(), caster = r.u32();
+  r.f32(); r.f32(); r.f64(); // degrade modifier, degrade limit, last time degraded
+  r.u32(); r.u32(); r.f32(); // stat mod type, key, value
+  if (hasSet) r.u32();       // spell set id
+  return { spellId, layer, category, power, startTime, duration, caster };
+}
+export function readEnchantmentList(r: BinReader): EnchantmentInfo[] {
+  const n = r.u32(), out: EnchantmentInfo[] = [];
+  for (let i = 0; i < n; i++) out.push(readEnchantment(r));
+  return out;
+}
+/** A u32-counted list of (spell u16, layer u16), used by the remove and dispel events. */
+export function readLayeredSpells(r: BinReader): { spellId: number; layer: number }[] {
+  const n = r.u32(), out: { spellId: number; layer: number }[] = [];
+  for (let i = 0; i < n; i++) out.push({ spellId: r.u16(), layer: r.u16() });
+  return out;
+}
+/** Seconds an enchantment has left now (Infinity for those that last until removed, such as item spells). */
+export function enchantmentRemaining(e: EnchantmentInfo, nowSec = performance.now() / 1000): number {
+  if (e.duration < 0) return Infinity;
+  // start time is how long ago it began, as a negative number, when the server sent it
+  return e.duration + e.startTime - (nowSec - (e.receivedAt ?? nowSec));
+}
+
 export interface EnchantmentInfo {
   spellId: number;
   layer: number;
@@ -735,6 +762,8 @@ export interface EnchantmentInfo {
   /** seconds the enchantment lasts (-1 = until removed) */
   duration: number;
   caster: number;
+  /** our clock (seconds) when this arrived, for counting down */
+  receivedAt?: number;
 }
 
 /**
@@ -795,19 +824,10 @@ export function parsePlayerDescription(r: BinReader): PlayerDescription {
   try {
     if (vectorFlags & 0x0200) {
       const mask = r.u32();
-      const readEnchantment = () => {
-        const spellId = r.u16(), layer = r.u16(), category = r.u16(), hasSet = r.u16();
-        const power = r.u32(), startTime = r.f64(), duration = r.f64(), caster = r.u32();
-        r.f32(); r.f32(); r.f64(); // degrade modifier, degrade limit, last time degraded
-        r.u32(); r.u32(); r.f32(); // stat mod type, key, value
-        if (hasSet) r.u32();       // spell set id
-        out.enchantments.push({ spellId, layer, category, power, startTime, duration, caster });
-      };
-      const list = () => { const n = r.u32(); for (let i = 0; i < n; i++) readEnchantment(); };
-      if (mask & 0x1) list();            // multiplicative
-      if (mask & 0x2) list();            // additive
-      if (mask & 0x8) list();            // cooldowns
-      if (mask & 0x4) readEnchantment(); // vitae (a single entry)
+      if (mask & 0x1) out.enchantments.push(...readEnchantmentList(r)); // multiplicative
+      if (mask & 0x2) out.enchantments.push(...readEnchantmentList(r)); // additive
+      if (mask & 0x8) out.enchantments.push(...readEnchantmentList(r)); // cooldowns
+      if (mask & 0x4) out.enchantments.push(readEnchantment(r));        // vitae (a single entry)
     }
     const optionFlags = r.u32();
     r.u32(); // character options 1

@@ -204,11 +204,40 @@ export class PlayerController {
    */
   async playServerMotion(command: number, stance?: number) {
     if (!this.model || PlayerController.isMovement(command)) return;
-    const st = stance || this.model.stance;
-    const seconds = await this.model.motionDuration(command, st);
-    if (!await this.model.playMotion(command, st)) return;
-    this.overlayLeft = Math.max(0.3, seconds);
-    this.currentCommand = -1; // our own motion is re-applied once the overlay ends
+    // our own cast animation is already showing these gestures; the server's echo would restart them
+    if (this.localCastLeft > 0) return;
+    await this.startOverlay(command, stance);
+  }
+
+  /** gestures still to play for a cast we started */
+  private gestureQueue: number[] = [];
+  private gesturePending = false;
+  /** while our own cast animation runs, the server's copies of the same gestures are ignored */
+  private localCastLeft = 0;
+
+  /**
+   * Animate a cast the way the retail client does, right away: each windup gesture, then the
+   * cast gesture, in the current (magic) stance. Moving cancels it.
+   */
+  playCastGestures(gestures: number[]) {
+    if (!this.model || !gestures.length) return;
+    this.gestureQueue = gestures.slice(1);
+    this.localCastLeft = 8;
+    this.startOverlay(gestures[0]);
+  }
+
+  private async startOverlay(command: number, stance?: number) {
+    if (!this.model) return;
+    this.gesturePending = true;
+    try {
+      const st = stance || this.model.stance;
+      const seconds = await this.model.motionDuration(command, st);
+      if (!await this.model.playMotion(command, st)) return;
+      this.overlayLeft = Math.max(0.3, seconds);
+      this.currentCommand = -1; // our own motion is re-applied once the overlay ends
+    } finally {
+      this.gesturePending = false;
+    }
   }
 
   /** Face a world position (server TurnToObject), plus an optional heading offset in degrees. */
@@ -331,9 +360,19 @@ export class PlayerController {
 
     if (this.model) {
       const animKey = animCmd * 8 + animSpeed;
-      // moving cancels a one-off animation, and so does its own length running out
-      if (this.overlayLeft > 0) this.overlayLeft = moving ? 0 : this.overlayLeft - dt;
-      if (!this.airborne && this.overlayLeft <= 0 && animKey !== this.currentCommand) {
+      // moving cancels a one-off animation, and so does its own length running out; a cast's
+      // gestures follow one another
+      if (this.overlayLeft > 0) {
+        this.overlayLeft = moving ? 0 : this.overlayLeft - dt;
+        if (this.overlayLeft <= 0 && this.gestureQueue.length && !moving) this.startOverlay(this.gestureQueue.shift()!);
+      }
+      if (moving) { this.gestureQueue.length = 0; this.localCastLeft = 0; }
+      if (this.localCastLeft > 0) {
+        this.localCastLeft -= dt;
+        // once the last gesture is done, keep ignoring echoes only briefly
+        if (!this.gestureQueue.length && this.overlayLeft <= 0 && !this.gesturePending) this.localCastLeft = Math.min(this.localCastLeft, 0.6);
+      }
+      if (!this.airborne && this.overlayLeft <= 0 && !this.gesturePending && !this.gestureQueue.length && animKey !== this.currentCommand) {
         this.currentCommand = animKey;
         this.model.playMotion(animCmd, this.model.stance, animSpeed);
       }

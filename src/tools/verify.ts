@@ -8,7 +8,7 @@
 import {
   BinReader, DatDatabase, DenoFileSource, hex, parseAnimation, parseEnvCell, parseEnvironment, parseGfxObj,
   parseLandblock, parseLandblockInfo, parsePalette, parseRegion, parseSetup, parseSurface, parseSurfaceTexture,
-  parseTexture, parseScene, parseMotionTable, parseCharGen, parseSkillTable, parseParticleEmitterInfo, parsePhysicsScript, parsePhysicsScriptTable, CHARGEN_ID, SKILLTABLE_ID, PortalKind, REGION_ID,
+  parseTexture, parseScene, parseMotionTable, parseCharGen, parseSkillTable, parseParticleEmitterInfo, parsePhysicsScript, parsePhysicsScriptTable, parseSpellComponentTable, SPELLCOMPONENTS_ID, parseXpTable, XPTABLE_ID, CHARGEN_ID, SKILLTABLE_ID, PortalKind, REGION_ID,
 } from "../dat/mod.ts";
 
 const dir = Deno.args[0] ?? `${Deno.env.get("HOME")}/Downloads/ac-updates`;
@@ -63,6 +63,8 @@ await check(portal, "Environment", byKind(PortalKind.Environment), parseEnvironm
 await check(portal, "Scene", byKind(PortalKind.Scene), parseScene);
 await check(portal, "MotionTable", byKind(PortalKind.MotionTable), parseMotionTable);
 await check(portal, "CharGen", [CHARGEN_ID], parseCharGen);
+await check(portal, "SpellComponents", [SPELLCOMPONENTS_ID], parseSpellComponentTable);
+await check(portal, "XpTable", [XPTABLE_ID], parseXpTable);
 await check(portal, "ParticleEmitter", byKind(PortalKind.ParticleEmitter), parseParticleEmitterInfo);
 await check(portal, "PhysicsScript", byKind(PortalKind.PhysicsScript), parsePhysicsScript);
 await check(portal, "PhysicsScriptTbl", byKind(PortalKind.PhysicsScriptTable), parsePhysicsScriptTable);

@@ -25,6 +25,8 @@ export interface SpellBarDeps {
   icon(textureId: number): Promise<string | null>;
   targetGuid(): number | null;
   log(line: string, cls?: string): void;
+  /** a cast was just sent: animate it on our character */
+  onCastStart?(spellId: number): void;
 }
 
 interface QueuedCast { spellId: number; target?: number; label: string; retries?: number }
@@ -104,6 +106,7 @@ export function createSpellBar(deps: SpellBarDeps) {
     queue.shift();
     current = next;
     c.castSpell(next.spellId, next.target);
+    deps.onCastStart?.(next.spellId);
     state = "casting"; timer = 15; // safety net if the server never answers
     status(batchTotal ? `casting ${batchDone + 1} of ${batchTotal}: ${next.label}` : `casting ${next.label}`);
     render();

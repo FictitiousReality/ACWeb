@@ -70,7 +70,12 @@ check the rules of any server before connecting to it.
   finish; harmful spells are never part of a buff run. Magic mode is entered
   for you when you have a wand, orb or staff wielded. Add spells with + on the
   Spells tab, right-click a slot to remove it, double-click a bar number to
-  name it.
+  name it. Your character plays the windup and cast gestures the moment you
+  cast, worked out from the spell's own components as the retail client did.
+- **Active buffs**: the ✦ button by Blink counts the beneficial spells on you
+  and opens a list with the time each has left, soonest first; a weaker spell
+  in the same category as a stronger one is shown dimmed as surpassed. It
+  stays current as spells are cast, refreshed, dispelled or expire.
 - **Items**: pick up from the ground, equip, unequip, use, give and drop, with
   the right action chosen for what the item is.
 - **Spending experience**: raise attributes, vitals and skills from the panel,
@@ -171,6 +176,7 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Space (hold) | charge a jump: a bar fills over a second; release to jump with that power (jump height uses a Jump skill pinned at 750 for now) |
 | U | use the target, or pick it up when it is an item on the ground |
 | 1 – 0 | cast the spell in that slot of the current spell bar |
+| ✦ button (top right) | how many beneficial spells are on you; click for the list with the time each has left |
 | C | open or close the character panel |
 | I | the character panel's Inventory tab |
 | Enter | focus the chat box; Escape leaves it or clears the target |

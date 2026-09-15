@@ -76,6 +76,9 @@ export interface CharPanelDeps {
   settings: SettingDef[];
   /** called whenever the panel opens, closes or changes tab, so a launcher can highlight the right button */
   onChange?(open: boolean, tab: CharTab): void;
+  /** put a spell on the spell bar being shown */
+  addToSpellBar?(spellId: number): void;
+  spellBarName?(): string;
 }
 
 /** equipment slots in the order they are drawn, with the EquipMask bits each covers */
@@ -466,7 +469,17 @@ export function createCharacterPanel(deps: CharPanelDeps) {
       }
       const t = tile(s.iconId, s.name, "spell");
       t.title = `${s.name}\n${s.description}\nMana ${s.baseMana}${s.duration ? `, lasts ${Math.round(s.duration / 60)} min` : ""}`;
-      box.appendChild(t);
+      const row = document.createElement("div");
+      row.className = "spellrow";
+      row.appendChild(t);
+      if (deps.addToSpellBar) {
+        const add = document.createElement("button");
+        add.textContent = "+";
+        add.title = `add ${s.name} to ${deps.spellBarName?.() ?? "the spell bar"}`;
+        add.onclick = () => deps.addToSpellBar!(s.id);
+        row.appendChild(add);
+      }
+      box.appendChild(row);
     }
     if (!spells.length) box.appendChild(Object.assign(document.createElement("p"), { className: "note", textContent: "no spells match" }));
   }

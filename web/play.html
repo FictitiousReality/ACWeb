@@ -102,6 +102,23 @@
     .setting small { grid-column: 1 / -1; opacity: .5; font-size: 10px; }
     .setting input[type=checkbox] { justify-self: start; }
     .motd { font-size: 12px; font-style: italic; opacity: .85; margin: 6px 0; }
+    #spellbar { position: fixed; right: 10px; bottom: 52px; z-index: 4; display: none; background: rgba(0,0,0,.6); border-radius: 6px; padding: 4px 6px; cursor: move; max-width: 470px; }
+    #spellbar.show { display: block; }
+    #sbTabs { display: flex; align-items: center; gap: 2px; margin-bottom: 4px; }
+    #sbTabs button { font: inherit; font-size: 10px; min-width: 20px; padding: 1px 5px; background: rgba(255,255,255,.1); color: #ccc; border: 0; border-radius: 3px; cursor: pointer; }
+    #sbTabs button.active { background: #dfc98a; color: #222; }
+    #sbTabs button.mode.on { background: #6a4fb0; color: #fff; }
+    #sbTabs .spacer { flex: 1; }
+    #sbSlots { display: flex; flex-wrap: wrap; gap: 3px; min-height: 36px; }
+    #sbSlots .sb { position: relative; width: 34px; height: 34px; border-radius: 4px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); cursor: pointer; padding: 0; }
+    #sbSlots .sb img { width: 32px; height: 32px; image-rendering: pixelated; display: block; }
+    #sbSlots .sb.queued { outline: 2px solid #8fd08f; }
+    #sbSlots .sb.casting { outline: 2px solid #ffd27a; }
+    #sbSlots .sb .n { position: absolute; left: 2px; top: 0; font-size: 9px; color: #fff; text-shadow: 0 0 2px #000; pointer-events: none; }
+    #sbSlots .empty { font-size: 11px; opacity: .6; padding: 8px 4px; }
+    .spellrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .spellrow button { font: inherit; font-size: 11px; line-height: 1; padding: 2px 7px; border: 0; border-radius: 3px; background: #4a6b3f; color: #fff; cursor: pointer; }
+    #sbStatus { font-size: 11px; opacity: .85; margin-top: 3px; min-height: 14px; }
     #panelbar { position: fixed; right: 10px; bottom: 10px; z-index: 4; display: flex; align-items: center; gap: 3px; background: rgba(0,0,0,.55); border-radius: 6px; padding: 4px 6px; cursor: move; white-space: nowrap; }
     #panelbar button { font: inherit; font-size: 11px; background: rgba(255,255,255,.1); color: #ddd; border: 0; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
     #panelbar button:hover { background: rgba(255,255,255,.2); }
@@ -149,6 +166,11 @@
     <button type="button" data-panel="items" title="inventory (I)">Items</button>
     <button type="button" data-panel="alleg" title="allegiance">Allegiance</button>
     <button type="button" data-panel="settings" title="client settings">Settings</button>
+  </div>
+  <div id="spellbar">
+    <div id="sbTabs"></div>
+    <div id="sbSlots"></div>
+    <div id="sbStatus"></div>
   </div>
   <div id="jumpbar"><div></div></div>
   <div id="vitals">

@@ -177,6 +177,17 @@ export class PlayerController {
     return true;
   }
 
+  /** current combat stance (non-combat, magic...), as the server last told us */
+  stance: number = MotionStance.NonCombat;
+
+  /** Switch stance (the server entered us into magic mode, say): idle in it, move in it, report it. */
+  setStance(stance: number) {
+    if (stance === this.stance) return;
+    this.stance = stance;
+    this.model?.playMotion(0x41000003, stance).catch(() => {});
+    this.currentCommand = -1;
+  }
+
   /** movement commands we animate ourselves; anything else from the server is a one-off overlay */
   private static readonly MOVEMENT_COMMANDS = new Set([0x03, 0x05, 0x06, 0x07, 0x0d, 0x0e, 0x0f, 0x10]);
   /** seconds left of a one-off animation the server asked for */
@@ -334,7 +345,7 @@ export class PlayerController {
     const now = performance.now();
     if (motionKey !== this.lastMotion) {
       this.lastMotion = motionKey;
-      const m: RawMotion = { holdKey: this.run ? 2 : 1, stance: MotionStance.NonCombat };
+      const m: RawMotion = { holdKey: this.run ? 2 : 1, stance: this.stance };
       if (fwd && !back) m.forward = Cmd.WalkForward;
       else if (back && !fwd) m.forward = Cmd.WalkBackwards;
       if (sr && !sl) m.sidestep = Cmd.SideStepRight;

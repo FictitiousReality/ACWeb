@@ -7,11 +7,12 @@ import { PlayerController } from "../src/render/player.ts";
 import { AnimatedModel } from "../src/render/animated.ts";
 import { ParticleSystem } from "../src/render/particles.ts";
 import { createCharacterPanel, loadSettings, itemAction, isOnGround, type SettingDef } from "./charpanel.ts";
+import { createSpellBar } from "./spellbar.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
-import { CHARGEN_ID, SKILLTABLE_ID, parseCharGen, parseSkillTable } from "../src/dat/mod.ts";
-import type { CharGen, SkillBase } from "../src/dat/mod.ts";
+import { CHARGEN_ID, SKILLTABLE_ID, SPELLTABLE_ID, parseCharGen, parseSkillTable, parseSpellTable } from "../src/dat/mod.ts";
+import type { CharGen, SkillBase, SpellBase } from "../src/dat/mod.ts";
 import { Opcode } from "../src/net/messages.ts";
 import { commandFromKey, MotionCommandNames } from "../src/dat/motionenums.ts";
 
@@ -192,6 +193,7 @@ let client: GameClient | null = null;
 let iterations = { portal: 2072, cell: 982, language: 994 };
 let charGen: CharGen | null = null;
 let skillTable: Map<number, SkillBase> | null = null;
+let spellTable: Map<number, SpellBase> | null = null;
 
 async function openDats() {
   log("opening dats over HTTP...");
@@ -227,6 +229,7 @@ async function openDats() {
   };
   scene.add(netWorld.group);
   loadSettings(settingDefs); // stored view distance, effect speed, field of view...
+  spellTable = await assets.portal.get(SPELLTABLE_ID, parseSpellTable); // names, icons and flags for the spell bar
   sky = new SkyRenderer(assets, region);
   await sky.build();
   scene.background = null;
@@ -358,7 +361,8 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onObjectPickedUp: (g) => netWorld?.remove(g),
       onObjectParented: (o) => netWorld?.attach(o),
       onVitals: (v) => { renderVitals(v); charPanel.render(); },
-      onCharacterData: () => charPanel.render(),
+      onCharacterData: () => { charPanel.render(); spellBar.render(); },
+      onUseDone: (code, text) => spellBar.onUseDone(code, text),
       onAllegiance: () => charPanel.render(),
       onTargetHealth: (g, f) => { if (g === targetGuid) { targetHealth = f; renderTarget(); } },
       onCharacterList: showCharacters,
@@ -377,6 +381,9 @@ $("loginForm").addEventListener("submit", async (ev) => {
       },
       onPlayerMotion: (m) => {
         if (!player) return;
+        // stance changes (entering magic mode, putting the wand away) come as motions on us
+        const stance = m.state?.stance || m.stance;
+        if (stance && (stance & 0xffff)) { player.setStance(stance); spellBar.onStance(stance); }
         if (m.type === 9 && m.moveTo) player.faceHeading(m.moveTo.heading);
         if (m.type === 8 && m.moveTo) {
           const t = m.moveTo.target ? netWorld?.positionOf(m.moveTo.target) : null;
@@ -445,6 +452,7 @@ function showCharacters(list: CharacterList) {
 
 async function onEnterWorld(guid: number) {
   if (netWorld) netWorld.playerGuid = guid;
+  spellBar.show();
   $("login").style.display = "none";
   $("hud").classList.add("show");
   player = new PlayerController(client!, streamer!);
@@ -560,6 +568,7 @@ addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); $("chatin").focus(); }
   else if (e.code === "KeyI") charPanel.toggle("items");
   else if (e.code === "KeyC") charPanel.toggle();
+  else if (/^Digit[0-9]$/.test(e.code)) spellBar.castSlot(e.code === "Digit0" ? 9 : Number(e.code.slice(5)) - 1);
   else if (e.code === "Space") { e.preventDefault(); if (!e.repeat) player.startJumpCharge(); }
   else if (e.code === "KeyU") useTarget();
   else if (e.key === "Escape") { if (charPanel.isOpen()) charPanel.close(); else setTarget(null); }
@@ -602,9 +611,9 @@ function makeDraggable(id: string, handleSel?: string) {
     e.preventDefault();
   });
 }
-for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"], ["panelbar"]] as [string, string?][]) makeDraggable(id, handle);
+for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"], ["panelbar"], ["spellbar"]] as [string, string?][]) makeDraggable(id, handle);
 function resetUi() {
-  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools", "panelbar"]) {
+  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools", "panelbar", "spellbar"]) {
     try { localStorage.removeItem(PANEL_STORE + id); } catch { /* ignore */ }
     const el = $(id); el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; el.style.marginLeft = "";
   }
@@ -703,6 +712,8 @@ const charPanel = createCharacterPanel({
   log,
   targetGuid: () => targetGuid,
   settings: settingDefs,
+  addToSpellBar: (id) => spellBar.addToBar(id),
+  spellBarName: () => spellBar.barName,
   onChange: (open, tab) => {
     for (const b of document.querySelectorAll<HTMLButtonElement>("#panelbar button[data-panel]")) {
       b.classList.toggle("active", open && b.dataset.panel === tab);
@@ -712,6 +723,14 @@ const charPanel = createCharacterPanel({
 for (const b of document.querySelectorAll<HTMLButtonElement>("#panelbar button[data-panel]")) {
   b.onclick = () => { charPanel.toggle(b.dataset.panel as Parameters<typeof charPanel.toggle>[0]); b.blur(); };
 }
+
+const spellBar = createSpellBar({
+  client: () => client,
+  spell: (id) => spellTable?.get(id),
+  icon,
+  targetGuid: () => targetGuid,
+  log,
+});
 document.addEventListener("acweb-resetui", () => resetUi());
 
 // ---------- frame loop ----------
@@ -737,6 +756,7 @@ function frame(now: number) {
   }
   netWorld?.update(dt);
   particles?.update(dt);
+  spellBar.tick(dt);
   if (player) {
     const jb = $("jumpbar");
     const c = player.jumpCharge;

@@ -11,10 +11,10 @@ import {
   buildMoveToState, buildTalk, buildCharacterCreate, parseCharacterCreateResponse, CharacterCreateResult, Group, Opcode,
   buildUse, buildUseWithTarget, buildGive, buildDrop, buildPutInContainer, buildGetAndWield, buildIdentify, buildTell, buildEmote, buildSoulEmote,
   buildTurbineChat, parseTurbineChat, buildSimpleAction, GameActionType, parseCharacterList, parseCreateObject, parseMotionMessage, parseMovementData,
-  parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32, gameActionU32x2,
+  parsePlayerDescription, buildJump, parseAllegianceProfile, gameActionU32, gameActionU32x2, gameActionU32x3,
   parseObjDesc, parseServerName, parseUpdatePosition, type CharacterList, type CreateObject, type MovementData,
   type ObjectSequences, type Position, type PositionUpdate, type RawMotion, type CharacterCreateInfo,
-  type AllegianceProfile, type AllegianceMember, type SkillInfo,
+  type AllegianceProfile, type AllegianceMember, type SkillInfo, type EnchantmentInfo,
 } from "./messages.ts";
 
 export type AttributeName = "strength" | "endurance" | "quickness" | "coordination" | "focus" | "self";
@@ -25,7 +25,7 @@ export const ATTRIBUTE_NAMES: (AttributeName | "")[] = ["", "strength", "enduran
 export const VITAL_IDS: Record<VitalName, number> = { health: 1, stamina: 3, mana: 5 };
 
 export interface VitalPair { current: number; max: number }
-export type { AllegianceProfile, AllegianceMember, SkillInfo };
+export type { AllegianceProfile, AllegianceMember, SkillInfo, EnchantmentInfo };
 export interface Vitals { health: VitalPair; stamina: VitalPair; mana: VitalPair }
 
 export interface WorldObject {
@@ -92,6 +92,8 @@ export interface ClientEvents {
   onVitals?(v: Vitals): void;
   /** attributes, skills or the spellbook changed (also fired once after login) */
   onCharacterData?(): void;
+  /** the server finished (or refused) an action such as a cast: 0 means success */
+  onUseDone?(code: number, text: string): void;
   /** our allegiance profile arrived */
   onAllegiance?(a: AllegianceProfile | null): void;
   /** the server reports a creature's health as a fraction (selected target) */
@@ -284,6 +286,37 @@ export class GameClient {
   spells: number[] = [];
   /** character properties from the login description (int 25 = level, int64 1 = total xp) */
   properties = { int: new Map<number, number>(), int64: new Map<number, number>(), bool: new Map<number, boolean>(), float: new Map<number, number>(), string: new Map<number, string>() };
+  /** the eight saved spell bars (spell ids in order), from the login description */
+  spellBars: number[][] = [[], [], [], [], [], [], [], []];
+  /** enchantments on us at login */
+  enchantments: EnchantmentInfo[] = [];
+
+  /** 1 non-combat, 2 melee, 4 missile, 8 magic (PropertyInt 40, kept current by property updates) */
+  get combatMode(): number { return this.properties.int.get(40) ?? 1; }
+  /** Change stance. Magic needs a caster (wand, orb, staff) wielded, or the server falls back to non-combat. */
+  setCombatMode(mode: number) {
+    this.send(gameActionU32(GameActionType.ChangeCombatMode, mode), Group.Weenie);
+  }
+  /** Cast a spell on a target, or with no target (self buffs, rings, recalls). Needs magic mode. */
+  castSpell(spellId: number, target?: number) {
+    if (target) this.send(gameActionU32x2(GameActionType.CastTargetedSpell, target, spellId), Group.Weenie);
+    else this.send(gameActionU32(GameActionType.CastUntargetedSpell, spellId), Group.Weenie);
+  }
+  /** Put a spell on a saved spell bar (bar 0-7) at a position; the server keeps the bars. */
+  addSpellToBar(spellId: number, position: number, bar: number) {
+    const list = this.spellBars[bar];
+    const at = list.indexOf(spellId);
+    if (at >= 0) list.splice(at, 1);
+    list.splice(Math.min(position, list.length), 0, spellId);
+    this.send(gameActionU32x3(GameActionType.AddSpellFavorite, spellId, position, bar), Group.Weenie);
+  }
+  removeSpellFromBar(spellId: number, bar: number) {
+    const list = this.spellBars[bar];
+    const at = list.indexOf(spellId);
+    if (at >= 0) list.splice(at, 1);
+    this.send(gameActionU32x2(GameActionType.RemoveSpellFavorite, spellId, bar), Group.Weenie);
+  }
+
   /** our allegiance, once the server sends it (null when we are in none) */
   allegiance: AllegianceProfile | null = null;
   /** our rank within it, from the same message */
@@ -707,6 +740,8 @@ export class GameClient {
           this.skills = d.skills;
           this.spells = d.spells;
           this.properties = d.properties;
+          this.spellBars = d.spellBars;
+          this.enchantments = d.enchantments;
           this.recomputeVitals();
           this.events.onCharacterData?.();
           this.log(`character data: ${this.skills.size} skills, ${this.spells.length} spells`);
@@ -723,6 +758,11 @@ export class GameClient {
       case 0x027c: { // AllegianceInfoResponse: the queried player, then their profile
         r.u32();
         this.readAllegiance(r);
+        break;
+      }
+      case 0x01c7: { // UseDone: an action (a cast, a use) finished; 0 = success, else a WeenieError
+        const code = r.u32();
+        this.events.onUseDone?.(code, code ? humanize(WeenieErrorNames[code] ?? `error ${code}`) : "");
         break;
       }
       case 0x02c1: { // MagicUpdateSpell: a spell was learned

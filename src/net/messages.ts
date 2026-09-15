@@ -73,7 +73,8 @@ export const GameActionType = {
   PingRequest: 0x1e9,
   Jump: 0xf61b,
   MoveToState: 0xf61c,
-  AutonomousPosition: 0xf753, AllegianceUpdateRequest: 0x001f, RaiseVital: 0x0044, RaiseAttribute: 0x0045, RaiseSkill: 0x0046, TrainSkill: 0x0047 } as const;
+  AutonomousPosition: 0xf753, AllegianceUpdateRequest: 0x001f, RaiseVital: 0x0044, RaiseAttribute: 0x0045, RaiseSkill: 0x0046, TrainSkill: 0x0047,
+  CastUntargetedSpell: 0x0048, CastTargetedSpell: 0x004a, ChangeCombatMode: 0x0053, AddSpellFavorite: 0x01e3, RemoveSpellFavorite: 0x01e4 } as const;
 
 export interface Position {
   cell: number;
@@ -533,6 +534,13 @@ export function buildAutonomousPosition(pos: Position, seq: ObjectSequences, con
   return w.toBytes();
 }
 
+/** A game action whose payload is three u32s (add a spell to a spell bar). */
+export function gameActionU32x3(type: number, a: number, b: number, c: number): Uint8Array {
+  const w = gameAction(type);
+  w.u32(a).u32(b).u32(c);
+  return w.toBytes();
+}
+
 /** A game action whose payload is two u32s (raise attribute / vital / skill, train skill). */
 export function gameActionU32x2(type: number, a: number, b: number): Uint8Array {
   const w = gameAction(type);
@@ -712,6 +720,21 @@ export interface PlayerDescription {
   skills: Map<number, SkillInfo>;
   /** known spell ids */
   spells: number[];
+  /** enchantments on us at login (buffs, debuffs, vitae) */
+  enchantments: EnchantmentInfo[];
+  /** the eight saved spell bars (spell ids in order) */
+  spellBars: number[][];
+}
+export interface EnchantmentInfo {
+  spellId: number;
+  layer: number;
+  category: number;
+  power: number;
+  /** seconds, relative to the server clock when sent (negative = already running) */
+  startTime: number;
+  /** seconds the enchantment lasts (-1 = until removed) */
+  duration: number;
+  caster: number;
 }
 
 /**
@@ -723,7 +746,7 @@ export function parsePlayerDescription(r: BinReader): PlayerDescription {
   const flags = r.u32();
   r.u32(); // weenie type
   const out: PlayerDescription = {
-    attributes: {}, vitals: {}, skills: new Map(), spells: [],
+    attributes: {}, vitals: {}, skills: new Map(), spells: [], enchantments: [], spellBars: [],
     properties: { int: new Map(), int64: new Map(), bool: new Map(), float: new Map(), string: new Map() },
   };
   const p = out.properties;
@@ -763,10 +786,44 @@ export function parsePlayerDescription(r: BinReader): PlayerDescription {
       out.skills.set(id, { ranks, advancement, xpSpent, initLevel });
     }
   }
-  if (vectorFlags & 0x0100) { // spells (enchantments and character options follow; not read)
+  if (vectorFlags & 0x0100) { // spells
     const n = r.u16(); r.u16();
     for (let i = 0; i < n; i++) { out.spells.push(r.u32()); r.f32(); }
   }
+  // enchantments, then the character options that hold the spell bars. A surprise here must
+  // not cost the skills and spells already read, so this part is best-effort.
+  try {
+    if (vectorFlags & 0x0200) {
+      const mask = r.u32();
+      const readEnchantment = () => {
+        const spellId = r.u16(), layer = r.u16(), category = r.u16(), hasSet = r.u16();
+        const power = r.u32(), startTime = r.f64(), duration = r.f64(), caster = r.u32();
+        r.f32(); r.f32(); r.f64(); // degrade modifier, degrade limit, last time degraded
+        r.u32(); r.u32(); r.f32(); // stat mod type, key, value
+        if (hasSet) r.u32();       // spell set id
+        out.enchantments.push({ spellId, layer, category, power, startTime, duration, caster });
+      };
+      const list = () => { const n = r.u32(); for (let i = 0; i < n; i++) readEnchantment(); };
+      if (mask & 0x1) list();            // multiplicative
+      if (mask & 0x2) list();            // additive
+      if (mask & 0x8) list();            // cooldowns
+      if (mask & 0x4) readEnchantment(); // vitae (a single entry)
+    }
+    const optionFlags = r.u32();
+    r.u32(); // character options 1
+    if (optionFlags & 0x0001) { // shortcut bar: index, object, layered spell
+      const n = r.u32();
+      for (let i = 0; i < n; i++) { r.u32(); r.u32(); r.u16(); r.u16(); }
+    }
+    if (optionFlags & 0x0400) { // eight spell bars
+      for (let b = 0; b < 8; b++) {
+        const n = r.u32(), bar: number[] = [];
+        for (let i = 0; i < n; i++) bar.push(r.u32());
+        out.spellBars.push(bar);
+      }
+    }
+  } catch { /* leave whatever was read */ }
+  while (out.spellBars.length < 8) out.spellBars.push([]);
   return out;
 }
 

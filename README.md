@@ -63,6 +63,14 @@ check the rules of any server before connecting to it.
   and rank, time played, birth date, deaths and PK status; trained skills with
   their effective values; the spellbook with icons and a filter; inventory;
   allegiance detail; and client settings.
+- **Spellcasting**: a spell bar with the eight bars the server saves for you;
+  click a spell or press 1–0 to cast. Self spells cast untargeted, other spells
+  go to your selected target (beneficial ones fall back to you). "Buff me" and
+  "Buff target" cast every buff on the bar in order, waiting for each cast to
+  finish; harmful spells are never part of a buff run. Magic mode is entered
+  for you when you have a wand, orb or staff wielded. Add spells with + on the
+  Spells tab, right-click a slot to remove it, double-click a bar number to
+  name it.
 - **Items**: pick up from the ground, equip, unequip, use, give and drop, with
   the right action chosen for what the item is.
 - **Spending experience**: raise attributes, vitals and skills from the panel,
@@ -162,12 +170,14 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Click an object | target it (name and Use / Give buttons appear) |
 | Space (hold) | charge a jump: a bar fills over a second; release to jump with that power (jump height uses a Jump skill pinned at 750 for now) |
 | U | use the target, or pick it up when it is an item on the ground |
+| 1 – 0 | cast the spell in that slot of the current spell bar |
 | C | open or close the character panel |
 | I | the character panel's Inventory tab |
 | Enter | focus the chat box; Escape leaves it or clears the target |
 | Blink button (top right) | jump one landblock in the facing direction |
 
-A row of buttons in the bottom right opens each panel, and highlights the one
+The spell bar sits above the panel buttons once you are in the world. A row of
+buttons in the bottom right opens each panel, and highlights the one
 you are looking at. The character panel (C) has tabs for the paper doll, status, skills,
 spellbook, inventory, allegiance and client settings. Settings (effect speed,
 view and detail distance, field of view, mouse sensitivity, chat timestamps)

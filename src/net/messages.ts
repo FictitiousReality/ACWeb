@@ -280,6 +280,10 @@ export interface WeenieDesc {
   itemType: number;
   objectFlags: number;
   flags2: number;
+  /** RadarColor: 1 blue, 2 gold (creature), 3 white, 4 purple (portal), 5 red (PK), 6 pink, 7 green, 8 yellow (NPC/vendor), 9 cyan */
+  radarColor?: number;
+  /** RadarBehavior: 1 never show, 2 show while moving, 3 show while attacking, 4 always */
+  radarBehavior?: number;
   container?: number;
   wielder?: number;
   value?: number;
@@ -321,8 +325,8 @@ export function parseWeenieDesc(r: BinReader): WeenieDesc {
   if (flags & 0x10000) d.validLocations = r.u32();
   if (flags & 0x20000) d.wieldedLocation = r.u32();
   if (flags & 0x40000) r.u32();
-  if (flags & 0x100000) r.u8();
-  if (flags & 0x800000) r.u8();
+  if (flags & 0x100000) d.radarColor = r.u8();
+  if (flags & 0x800000) d.radarBehavior = r.u8();
   if (flags & 0x8000000) r.u16(); // PScript (ushort)
   if (flags & 0x1000000) r.f32(); // Workmanship
   if (flags & 0x200000) d.burden = r.u16();

@@ -102,6 +102,14 @@
     .setting small { grid-column: 1 / -1; opacity: .5; font-size: 10px; }
     .setting input[type=checkbox] { justify-self: start; }
     .motd { font-size: 12px; font-style: italic; opacity: .85; margin: 6px 0; }
+    #radar { position: fixed; top: 60px; right: 10px; width: 220px; height: 246px; min-width: 150px; min-height: 176px; max-width: 90vw; max-height: 90vh; display: none; flex-direction: column; z-index: 5; background: rgba(0,0,0,.72); border-radius: 6px; overflow: hidden; resize: both; }
+    #radar.show { display: flex; }
+    #radarHead { display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: rgba(255,255,255,.06); cursor: move; font-size: 12px; }
+    #radarHead .spacer { flex: 1; }
+    #radarHead .tool { font: inherit; background: none; color: #bbb; border: 0; cursor: pointer; padding: 0 3px; }
+    #radarHead .tool:hover { color: #fff; }
+    #radarRange { font-size: 11px; color: #9cf; font-family: ui-monospace, monospace; }
+    #radarCanvas { flex: 1; width: 100%; min-height: 0; display: block; cursor: crosshair; }
     #vendor { position: fixed; top: 60px; left: 50%; margin-left: -210px; width: 420px; max-height: 70vh; display: none; flex-direction: column; z-index: 5; background: rgba(0,0,0,.82); border-radius: 6px; overflow: hidden; }
     #vendor.show { display: flex; }
     #vendorHead { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: rgba(255,255,255,.06); cursor: move; font-size: 13px; }
@@ -194,12 +202,17 @@
     <button type="button" data-panel="items" title="inventory (I)">Items</button>
     <button type="button" data-panel="alleg" title="allegiance">Allegiance</button>
     <button type="button" data-panel="settings" title="client settings">Settings</button>
+    <button type="button" id="btnRadar" title="nearby players, NPCs and monsters">Radar</button>
   </div>
   <div id="vendor">
     <div id="vendorHead"><span class="grip" title="drag">⋮⋮</span><b id="vendorName">Vendor</b><span class="spacer"></span><span id="vendorCoins"></span><button type="button" id="vendorClose" class="tool" title="close">×</button></div>
     <div id="vendorTabs"><button type="button" data-vtab="buy" class="active">Buy</button><button type="button" data-vtab="sell">Sell</button></div>
     <div id="vendorList"></div>
     <div id="vendorFoot"><span id="vendorTotal"></span><button type="button" id="vendorGo">Buy</button></div>
+  </div>
+  <div id="radar">
+    <div id="radarHead"><span class="grip" title="drag">⋮⋮</span><b>Radar</b><span class="spacer"></span><span id="radarRange"></span><button type="button" id="radarOut" class="tool" title="zoom out">−</button><button type="button" id="radarIn" class="tool" title="zoom in">+</button><button type="button" id="radarNorth" class="tool" title="heading up (click for north up)">▲</button><button type="button" id="radarClose" class="tool" title="close">×</button></div>
+    <canvas id="radarCanvas"></canvas>
   </div>
   <div id="spellbar">
     <div id="sbTabs"></div>

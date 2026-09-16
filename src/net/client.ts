@@ -60,6 +60,9 @@ export interface WorldObject {
   itemType: number;
   /** world-space velocity from the physics description: projectiles (spell bolts, arrows) carry one */
   velocity?: [number, number, number];
+  /** the game's own radar blip colour and whether the object shows on radar at all */
+  radarColor: number;
+  radarBehavior: number;
   movement?: MovementData;
   raw: CreateObject;
 }
@@ -447,6 +450,7 @@ export class GameClient {
           validLocations: co.weenie.validLocations ?? 0,
           stackSize: co.weenie.stackSize ?? 1, value: co.weenie.value ?? 0, icon: co.weenie.icon,
           objectFlags: co.weenie.objectFlags, itemType: co.weenie.itemType, velocity: co.physics.velocity,
+          radarColor: co.weenie.radarColor ?? 0, radarBehavior: co.weenie.radarBehavior ?? 0,
           movement: co.physics.movement, raw: co,
         };
         const existed = this.objects.has(co.guid);

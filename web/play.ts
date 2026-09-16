@@ -10,6 +10,7 @@ import { createCharacterPanel, loadSettings, itemAction, isOnGround, type Settin
 import { createSpellBar } from "./spellbar.ts";
 import { createBuffs } from "./buffs.ts";
 import { createVendorWindow } from "./vendor.ts";
+import { createRadar } from "./radar.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
@@ -618,11 +619,13 @@ function makeDraggable(id: string, handleSel?: string) {
     e.preventDefault();
   });
 }
-for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"], ["panelbar"], ["spellbar"], ["vendor", "#vendorHead"]] as [string, string?][]) makeDraggable(id, handle);
+for (const [id, handle] of [["vitals"], ["target"], ["char", "#charTabs"], ["hud", "#chattabs"], ["jumpbar"], ["tools"], ["panelbar"], ["spellbar"], ["vendor", "#vendorHead"], ["radar", "#radarHead"]] as [string, string?][]) makeDraggable(id, handle);
 function resetUi() {
-  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools", "panelbar", "spellbar", "vendor"]) {
+  try { localStorage.removeItem("acweb.radar.size"); } catch { /* ignore */ }
+  for (const id of ["vitals", "target", "char", "hud", "jumpbar", "tools", "panelbar", "spellbar", "vendor", "radar"]) {
     try { localStorage.removeItem(PANEL_STORE + id); } catch { /* ignore */ }
     const el = $(id); el.style.left = ""; el.style.top = ""; el.style.right = ""; el.style.bottom = ""; el.style.marginLeft = "";
+    el.style.width = ""; el.style.height = "";
   }
   log("panel positions reset", "c-system");
 }
@@ -743,6 +746,12 @@ const charPanel = createCharacterPanel({
 for (const b of document.querySelectorAll<HTMLButtonElement>("#panelbar button[data-panel]")) {
   b.onclick = () => { charPanel.toggle(b.dataset.panel as Parameters<typeof charPanel.toggle>[0]); b.blur(); };
 }
+$<HTMLButtonElement>("btnRadar").onclick = () => {
+  radar.toggle();
+  const b = $<HTMLButtonElement>("btnRadar");
+  b.classList.toggle("active", radar.isOpen());
+  b.blur();
+};
 
 const spellBar = createSpellBar({
   client: () => client,
@@ -758,6 +767,22 @@ const spellBar = createSpellBar({
   },
 });
 const buffs = createBuffs({ client: () => client, spell: (id) => spellTable?.get(id), icon });
+const radar = createRadar({
+  self: () => player ? { x: player.pos.x, y: player.pos.y, yaw: player.yaw } : null,
+  objects: () => {
+    const list = [];
+    if (netWorld && client) {
+      for (const [guid, e] of netWorld.entities) {
+        if (guid === client.playerGuid) continue;
+        list.push({ guid, obj: e.obj, x: e.root.position.x, y: e.root.position.y });
+      }
+    }
+    return list;
+  },
+  targetGuid: () => targetGuid,
+  onPick: (guid) => setTarget(guid),
+});
+
 const vendorWindow = createVendorWindow({
   client: () => client,
   icon,
@@ -795,6 +820,7 @@ function frame(now: number) {
   spellBar.tick(dt);
   buffs.tick(dt);
   vendorWindow.tick();
+  radar.tick(dt);
   if (player) {
     const jb = $("jumpbar");
     const c = player.jumpCharge;

@@ -80,6 +80,14 @@ check the rules of any server before connecting to it.
   the right action chosen for what the item is. Double-click anything in the
   world to interact with it: talk to an NPC, open a vendor or a door, or pick
   up an item off the ground.
+- **Radar**: nearby players, NPCs, monsters, portals and lifestones as blips in
+  the game's own colours — AC sends a radar blip colour and a radar behaviour
+  with every object, so the radar shows what the server says to show (gold
+  creatures, yellow NPCs and vendors, red player killers, purple portals, blue
+  lifestones) and hides anything marked never to appear. Drag the corner to
+  resize, scroll or use + / − to zoom out as far as 192m (the distance the
+  server tracks objects for you), click a blip to target it, and switch between
+  heading-up and north-up.
 - **Vendors**: double-click a merchant to see what it sells — icon, name, stock
   and the price you pay, worked out with the vendor's own rate the way the
   server does. Set a quantity per item and buy; the Sell tab lists the things
@@ -183,6 +191,7 @@ deno task launch [datDir]          # both of the above in one process, and opens
 | Mouse drag | orbit the camera; wheel zooms |
 | Click an object | target it (name and Use / Give buttons appear) |
 | Double-click an object | interact with it: talk to an NPC, open a vendor or a door, pick up an item on the ground |
+| Radar button (bottom right) | show the radar; drag its corner to resize, scroll over it to zoom, click a blip to target it |
 | Space (hold) | charge a jump: a bar fills over a second; release to jump with that power (jump height uses a Jump skill pinned at 750 for now) |
 | U | use the target, or pick it up when it is an item on the ground |
 | 1 – 0 | cast the spell in that slot of the current spell bar |

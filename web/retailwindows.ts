@@ -102,8 +102,30 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     deps.onClick?.(h.window.layout, h.elementId);
   });
 
+  /** the meter elements of an open window, top to bottom - health, stamina, mana in the vitals */
+  async function meters(name: string): Promise<number[]> {
+    const w = open.get(name);
+    if (!ui || !w) return [];
+    const layout = await ui.load(w.did);
+    const found: { id: number; y: number }[] = [];
+    (function walk(m: Map<number, { type: number; elementId: number; y: number; children: Map<number, unknown> }>) {
+      for (const e of m.values()) {
+        if (e.type === 7) found.push({ id: e.elementId, y: e.y });
+        walk(e.children as never);
+      }
+      // deno-lint-ignore no-explicit-any
+    })((layout as any).elements);
+    return found.sort((a, b) => a.y - b.y).map((f) => f.id);
+  }
+
   return {
     available: () => ui !== null,
+    meters,
+    /** drive a meter from live game state: 0..1 */
+    setFill(elementId: number, fraction: number) {
+      ui?.setFill(elementId, fraction);
+      dirty = true;
+    },
     names: () => (ui ? [...ui.layouts.keys()].sort() : []),
     show,
     hide,

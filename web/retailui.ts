@@ -50,6 +50,7 @@ const P = {
   textFonts: 0x001a,
   textColors: 0x001b,
   /** a tab panel's pages: each entry pairs a tab element with a page element and an open flag */
+  meterPosition: 0x0069,
   panelPages: 0x002e,
   pageElement: 0x0031,
   pageOpen: 0x0032,
@@ -71,6 +72,8 @@ export interface DrawRecord {
 export interface RetailUi {
   /** layout name (classic_vendor, classic_spellcasting, ...) to its data id */
   layouts: Map<string, number>;
+  /** drive a meter from live game state: 0..1 */
+  setFill(elementId: number, fraction: number): void;
   load(did: number): Promise<LayoutDesc>;
   /** draw a whole layout, or one element of it by element id; pass `trace` to record what drew */
   draw(
@@ -94,6 +97,9 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     const name = mapper.clientEnumToName.get(enumValue);
     if (name && did >>> 24 === 0x21) layouts.set(name, did);
   }
+
+  /** live meter fills by element id, so vitals can be driven by the game */
+  const fills = new Map<number, number>();
 
   const layoutCache = new Map<number, Promise<LayoutDesc | null>>();
   function load(did: number): Promise<LayoutDesc | null> {
@@ -389,6 +395,72 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       (isBackingShell(a) ? 0 : 1) - (isBackingShell(b) ? 0 : 1) || a.readOrder - b.readOrder
     );
 
+  /**
+   * A meter (type 7) is two three-slice tracks held in its own type-3 template children: the
+   * first container is the back, the second the front, and each container's children supply the
+   * left, tile and right sprites ordered by x (OpenAC DatWidgetFactory.BuildMeter / SliceIds).
+   * The front is clipped to the fill fraction, so a bar at 60% shows 60% of its width.
+   */
+  function sliceIds(container: ElementDesc): [number, number, number] {
+    const slices = [...container.children.values()]
+      .map((c) => ({ x: c.x, file: imagesOf(stateOfAny(c) ?? c)[0]?.file ?? 0 }))
+      .filter((s) => s.file)
+      .sort((a, b) => a.x - b.x);
+    return [slices[0]?.file ?? 0, slices[1]?.file ?? 0, slices[2]?.file ?? 0];
+  }
+  const stateOfAny = (e: ElementDesc) =>
+    imagesOf(e).length ? e : [...e.states.values()].find((st) => imagesOf(st).length);
+
+  /** left cap, tiled middle, right cap across a width */
+  async function drawTrack(
+    ctx: CanvasRenderingContext2D,
+    [left, tile, right]: [number, number, number],
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ) {
+    if (w <= 0) return;
+    const l = left ? await sprite(left) : null;
+    const r = right ? await sprite(right) : null;
+    const t = tile ? await sprite(tile) : null;
+    const lw = l ? Math.min(l.width, w) : 0;
+    const rw = r ? Math.min(r.width, Math.max(0, w - lw)) : 0;
+    if (l && lw) ctx.drawImage(l, 0, 0, lw, l.height, x, y, lw, h || l.height);
+    if (t) {
+      const mid = Math.max(0, w - lw - rw);
+      if (mid > 0) {
+        const pattern = ctx.createPattern(t, "repeat");
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x + lw, y, mid, h || t.height);
+        ctx.clip();
+        if (pattern) {
+          ctx.translate(x + lw, y);
+          ctx.fillStyle = pattern;
+          ctx.fillRect(0, 0, mid, h || t.height);
+        }
+        ctx.restore();
+      }
+    }
+    if (r && rw) ctx.drawImage(r, 0, 0, rw, r.height, x + w - rw, y, rw, h || r.height);
+  }
+
+  /** returns true when the element was drawn as a meter */
+  async function drawMeter(ctx: CanvasRenderingContext2D, e: ElementDesc, chain: ElementDesc[], x: number, y: number) {
+    if (e.type !== 7) return false;
+    const owner = chain.find((c) => [...c.children.values()].some((k) => k.type === 3)) ?? e;
+    const tracks = [...owner.children.values()].filter((c) => c.type === 3).sort((a, b) => a.readOrder - b.readOrder);
+    if (!tracks.length) return false;
+    const back = sliceIds(tracks[0]);
+    const front = tracks[1] ? sliceIds(tracks[1]) : null;
+    await drawTrack(ctx, back, x, y, e.width, e.height);
+    const fillProp = propOf(chain, undefined, P.meterPosition);
+    const fill = fills.get(e.elementId) ?? (typeof fillProp?.value === "number" ? fillProp.value : 0);
+    if (front && fill > 0) await drawTrack(ctx, front, x, y, Math.round(e.width * Math.min(1, fill)), e.height);
+    return true;
+  }
+
   async function drawElement(
     ctx: CanvasRenderingContext2D,
     e: ElementDesc,
@@ -404,6 +476,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       const imgs = imagesOf(c);
       return imgs.length ? imgs : undefined;
     });
+    if (await drawMeter(ctx, e, chain, x, y)) {
+      trace?.push({ id: e.elementId.toString(16).toUpperCase(), rect: `${x},${y} ${e.width}x${e.height}`, art: "meter", painted: true, text: null });
+      return;
+    }
     let painted = own ? await paint(ctx, own, x, y, e.width, e.height) : false;
 
     // states carry the button and tab art; prototypes higher up often declare states with no
@@ -445,6 +521,8 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   }
 
   return {
+    /** drive a meter from live game state: 0..1 */
+    setFill(elementId: number, fraction: number) { fills.set(elementId, fraction); },
     layouts,
     async load(did: number) {
       const l = await load(did);

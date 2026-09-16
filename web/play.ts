@@ -675,6 +675,20 @@ function renderVitals(v: Vitals) {
     $(id).textContent = p.max > 0 ? `${p.current} / ${p.max}` : `${p.current}`;
   };
   set("hp", "vHealth", v.health); set("st", "vStamina", v.stamina); set("mn", "vMana", v.mana);
+  void fillRetailVitals(v);
+}
+
+/** drive the retail vitals window's three meters, which run health, stamina, mana top to bottom */
+let retailVitalMeters: number[] | null = null;
+async function fillRetailVitals(v: Vitals) {
+  const r = retailWindows;
+  if (!r || !r.isOpen("classic_floatyvitals")) { retailVitalMeters = null; return; }
+  if (!retailVitalMeters) retailVitalMeters = await r.meters("classic_floatyvitals");
+  const pairs = [v.health, v.stamina, v.mana];
+  retailVitalMeters.forEach((id, i) => {
+    const p = pairs[i];
+    if (p) r.setFill(id, p.max > 0 ? Math.max(0, Math.min(1, p.current / p.max)) : 0);
+  });
 }
 
 function blink() {

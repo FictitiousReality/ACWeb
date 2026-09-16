@@ -17,3 +17,4 @@ export * from "./records/particles.ts";
 export * from "./records/spells.ts";
 export * from "./records/xptable.ts";
 export * from "./records/spellcomponents.ts";
+export * from "./records/ui.ts";

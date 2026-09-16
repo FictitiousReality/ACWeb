@@ -173,6 +173,37 @@ export class BinReader {
     return out;
   }
 
+  /** compressed count, then parsed items ("SmartArray"). */
+  smartList<T>(parse: (r: BinReader) => T): T[] {
+    const n = this.compressedU32();
+    const out = new Array<T>(n);
+    for (let i = 0; i < n; i++) out[i] = parse(this);
+    return out;
+  }
+
+  /** compressed count, then (u32 key, item) pairs. */
+  smartMapU32<T>(parse: (r: BinReader) => T): Map<number, T> {
+    const n = this.compressedU32();
+    const out = new Map<number, T>();
+    for (let i = 0; i < n; i++) {
+      const key = this.u32();
+      out.set(key, parse(this));
+    }
+    return out;
+  }
+
+  /** a byte of bucket size, a byte of count, then (u32 key, item) pairs; used by the UI records. */
+  byteMapU32<T>(parse: (r: BinReader) => T): Map<number, T> {
+    this.u8(); // bucket size
+    const n = this.u8();
+    const out = new Map<number, T>();
+    for (let i = 0; i < n; i++) {
+      const key = this.u32();
+      out.set(key, parse(this));
+    }
+    return out;
+  }
+
   /** compressed count, then (u16 key, item) pairs. */
   smartMapU16<T>(parse: (r: BinReader) => T): Map<number, T> {
     const n = this.compressedU32();

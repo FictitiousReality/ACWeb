@@ -9,6 +9,8 @@ import {
   BinReader, DatDatabase, DenoFileSource, hex, parseAnimation, parseEnvCell, parseEnvironment, parseGfxObj,
   parseLandblock, parseLandblockInfo, parsePalette, parseRegion, parseSetup, parseSurface, parseSurfaceTexture,
   parseTexture, parseScene, parseMotionTable, parseCharGen, parseSkillTable, parseParticleEmitterInfo, parsePhysicsScript, parsePhysicsScriptTable, parseSpellComponentTable, SPELLCOMPONENTS_ID, parseXpTable, XPTABLE_ID, CHARGEN_ID, SKILLTABLE_ID, PortalKind, REGION_ID,
+  parseMasterProperty, propertyTypes, parseDidMapper, parseEnumMapper, parseFont, parseStringTable,
+  parseLayoutDesc, MASTERPROPERTY_ID,
 } from "../dat/mod.ts";
 
 const dir = Deno.args[0] ?? `${Deno.env.get("HOME")}/Downloads/ac-updates`;
@@ -48,6 +50,11 @@ const portal = await DatDatabase.open(await DenoFileSource.open(`${dir}/client_p
 console.log(`portal: ${portal.files.size} files, iteration ${await portal.iteration()}`);
 const cell = await DatDatabase.open(await DenoFileSource.open(`${dir}/client_cell_1.dat`));
 console.log(`cell:   ${cell.files.size} files, iteration ${await cell.iteration()}`);
+let lang: DatDatabase | null = null;
+try {
+  lang = await DatDatabase.open(await DenoFileSource.open(`${dir}/client_local_English.dat`));
+  console.log(`lang:   ${lang.files.size} files, iteration ${await lang.iteration()}`);
+} catch { /* the language dat is optional */ }
 
 const byKind = (k: PortalKind) => [...portal.files.keys()].filter((id) => id >>> 24 === k);
 
@@ -70,6 +77,18 @@ await check(portal, "PhysicsScript", byKind(PortalKind.PhysicsScript), parsePhys
 await check(portal, "PhysicsScriptTbl", byKind(PortalKind.PhysicsScriptTable), parsePhysicsScriptTable);
 await check(portal, "SkillTable", [SKILLTABLE_ID], parseSkillTable);
 
+// the interface: property schema first, since every property value is typed by it
+await check(portal, "MasterProperty", [MASTERPROPERTY_ID], parseMasterProperty);
+await check(portal, "DidMapper", byKind(PortalKind.DidMapper), parseDidMapper);
+await check(portal, "EnumMapper", byKind(PortalKind.EnumMapper), parseEnumMapper);
+await check(portal, "Font", byKind(PortalKind.Font), parseFont);
+if (lang) {
+  const types = propertyTypes(parseMasterProperty(new BinReader((await portal.readFile(MASTERPROPERTY_ID))!)));
+  const langIds = [...lang.files.keys()];
+  await check(lang, "StringTable", langIds.filter((id) => id >>> 24 === 0x23), parseStringTable);
+  await check(lang, "LayoutDesc", langIds.filter((id) => id >>> 24 === 0x21), (r) => parseLayoutDesc(r, types));
+}
+
 const cellIds = [...cell.files.keys()];
 await check(cell, "Landblock", cellIds.filter((id) => (id & 0xffff) === 0xffff), parseLandblock);
 await check(cell, "LandblockInfo", cellIds.filter((id) => (id & 0xffff) === 0xfffe), parseLandblockInfo);
@@ -77,3 +96,4 @@ await check(cell, "EnvCell", cellIds.filter((id) => (id & 0xffff) < 0xfffe && (i
 
 portal.close();
 cell.close();
+lang?.close();

@@ -4,8 +4,12 @@
     {
       "name": "acweb-dev",
       "runtimeExecutable": "deno",
-      "runtimeArgs": ["task", "serve"],
-      "port": 8000
+      "runtimeArgs": [
+        "task",
+        "serve"
+      ],
+      "port": 8000,
+      "autoPort": false
     }
   ]
 }

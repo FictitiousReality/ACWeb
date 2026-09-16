@@ -38,6 +38,11 @@ import { decodeTexture } from "../src/world/decode.ts";
 /** property ids, from the MasterProperty table's own names */
 const P = {
   textJustifyH: 0x0014,
+  textJustifyV: 0x0015,
+  marginLeft: 0x0023,
+  marginRight: 0x0024,
+  marginTop: 0x0025,
+  marginBottom: 0x0026,
   textEntry: 0x0017,
   textFont: 0x0018,
   textColor: 0x0019,
@@ -295,6 +300,7 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     const colorProp = propOf(chain, st, P.textColor) ?? firstOf(propOf(chain, st, P.textColors));
     const glyphs = tint(loaded.sheet, colorProp ? argb(Number(colorProp.value)) : "#e8dcc0");
     const chars = new Map(loaded.font.chars.map((c) => [c.unicode, c]));
+    const el = chain[0];
 
     // verticalBefore is each glyph's own drop from the line top, so glyphs hang from the top of
     // the line rather than from a baseline (across all 49 fonts, verticalBefore + height matches
@@ -302,13 +308,41 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     // The horizontal bearings are signed bytes - 8,738 'before' and 7,048 'after' values exceed
     // 127, meaning negative - so they must be sign-extended or those glyphs fly off to the right.
     const signed = (b: number) => (b > 127 ? b - 256 : b);
-    let penX = x;
+    const advance = (g: { before: number; width: number; after: number }) => signed(g.before) + g.width + signed(g.after);
+
+    // Placement follows the justification the element asks for, as OpenAC's ElementReader maps it:
+    // 1 centres, 3 and 5 push to the far edge, anything else is left/top. Margins are properties
+    // 0x23-0x26. Without this every caption sat in its element's top-left corner.
+    let lineWidth = 0;
+    for (const ch of text) {
+      const g = chars.get(ch.charCodeAt(0));
+      if (g) lineWidth += advance(g);
+    }
+    const enumOf = (id: number) => Number(propOf(chain, st, id)?.value ?? 0);
+    const intOf = (id: number) => Number(propOf(chain, st, id)?.value ?? 0);
+    const hj = enumOf(P.textJustifyH), vj = enumOf(P.textJustifyV);
+    const marginL = intOf(P.marginLeft), marginR = intOf(P.marginRight);
+    const contentLeft = marginL;
+    const contentRight = (el.width || lineWidth) - marginR;
+    const lineHeight = loaded.font.maxCharHeight;
+    const startX = x + (hj === 1
+      ? Math.max(contentLeft, contentLeft + (contentRight - contentLeft - lineWidth) / 2)
+      : hj === 3 || hj === 5
+      ? Math.max(contentLeft, contentRight - lineWidth)
+      : contentLeft);
+    const lineTop = y + (vj === 1
+      ? ((el.height || lineHeight) - lineHeight) / 2
+      : vj === 3 || vj === 5
+      ? (el.height || lineHeight) - lineHeight
+      : intOf(P.marginTop));
+
+    let penX = startX;
     for (const ch of text) {
       const g = chars.get(ch.charCodeAt(0));
       if (!g) continue;
       penX += signed(g.before);
       if (g.width && g.height) {
-        ctx.drawImage(glyphs, g.offsetX, g.offsetY, g.width, g.height, penX, y + g.verticalBefore, g.width, g.height);
+        ctx.drawImage(glyphs, g.offsetX, g.offsetY, g.width, g.height, penX, lineTop + g.verticalBefore, g.width, g.height);
       }
       penX += g.width + signed(g.after);
     }

@@ -11,6 +11,7 @@ import { createSpellBar } from "./spellbar.ts";
 import { createBuffs } from "./buffs.ts";
 import { createVendorWindow } from "./vendor.ts";
 import { createRadar } from "./radar.ts";
+import { createRetailWindows } from "./retailwindows.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
 import type { CharacterList, WorldObject, Vitals, VitalPair } from "../src/net/client.ts";
@@ -196,6 +197,7 @@ let client: GameClient | null = null;
 let iterations = { portal: 2072, cell: 982, language: 994 };
 let charGen: CharGen | null = null;
 let skillTable: Map<number, SkillBase> | null = null;
+let retailWindows: Awaited<ReturnType<typeof createRetailWindows>> | null = null;
 let spellTable: Map<number, SpellBase> | null = null;
 let spellComponents: Map<number, SpellComponent> | null = null;
 
@@ -207,7 +209,12 @@ async function openDats() {
     DatDatabase.open(await HttpRangeSource.open("/dat/client_local_English.dat")).catch(() => null),
   ]);
   iterations = { portal: await portal.iteration(), cell: await cell.iteration(), language: lang ? await lang.iteration() : 994 };
-  assets = new Assets(portal, cell);
+  assets = new Assets(portal, cell, null, lang);
+  retailWindows = await createRetailWindows({
+    assets: () => assets,
+    log,
+    onClick: (layout, elementId) => log(`${layout}: clicked element ${elementId.toString(16).toUpperCase()}`, "c-system"),
+  });
   const region = await assets.region();
   streamer = new WorldStreamer(assets, region);
   streamer.onLog = (s) => log(s, "err");
@@ -559,6 +566,12 @@ function sendChat(text: string) {
   else if (cmd === "pkarena") client.recall("pkarena");
   else if (cmd === "pklarena") client.recall("pklarena");
   else if (cmd === "inv" || cmd === "i") charPanel.toggle("items");
+  else if (cmd === "retail") {
+    const name = rest.trim();
+    if (!retailWindows?.available()) log("retail layouts need the language dat", "c-error");
+    else if (!name) log(`retail layouts: ${retailWindows.names().join(", ")}`, "c-system");
+    else void retailWindows.toggle(name).then((open) => log(`${name} ${open ? "opened" : "closed"}`, "c-system"));
+  }
   else if (cmd === "char" || cmd === "c") charPanel.toggle();
   else log(`unknown command /${cmd}`, "c-error");
 }
@@ -821,6 +834,7 @@ function frame(now: number) {
   buffs.tick(dt);
   vendorWindow.tick();
   radar.tick(dt);
+  void retailWindows?.tick();
   if (player) {
     const jb = $("jumpbar");
     const c = player.jumpCharge;
@@ -857,5 +871,5 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 (globalThis as unknown as { acweb: unknown }).acweb = {
-  THREE, scene, camera, get sky() { return sky; }, get client() { return client; }, get player() { return player; }, get streamer() { return streamer; }, get netWorld() { return netWorld; }, get particles() { return particles; }, positionToWorld,
+  THREE, scene, camera, get sky() { return sky; }, get client() { return client; }, get player() { return player; }, get streamer() { return streamer; }, get netWorld() { return netWorld; }, get particles() { return particles; }, get retail() { return retailWindows; }, positionToWorld,
 };

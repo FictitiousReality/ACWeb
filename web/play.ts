@@ -575,7 +575,8 @@ function sendChat(text: string) {
       log(`retail windows: /retail vitals | toolbar | chat | radar | powerbar | vendor | inventory`, "c-system");
       log(`${r.names().length} layouts; /retail list for all, /retail close to shut them`, "c-system");
     } else if (arg === "list") log(r.names().join(", "), "c-system");
-    else if (arg === "close") { for (const n of r.names()) r.hide(n); log("retail windows closed", "c-system"); }
+    else if (arg === "close") { for (const n of r.names()) r.hide(n); $("vitals").style.display = "block"; log("retail windows closed", "c-system"); }
+    else if (arg === "reset") { r.resetPositions(); log("retail window positions reset", "c-system"); }
     else if (arg === "set") void openRetailSet();
     else {
       // a short name is enough: "vitals" finds classic_floatyvitals
@@ -692,13 +693,27 @@ function renderVitals(v: Vitals) {
   void fillRetailVitals(v);
 }
 
-/** the windows retail kept on screen while playing */
-const RETAIL_SET = ["classic_floatyvitals", "classic_floatytoolbar", "classic_floatyradar", "classic_floatypowerbar"];
+/**
+ * The interface retail put on screen while playing, in the places it put them: vitals and the
+ * indicator row top left, radar top right, chat bottom left, the toolbar and power bar along the
+ * bottom. The floaty layouts are all authored at 0,0 because the client positions them, so the
+ * placement lives here.
+ */
+type RetailAnchor = "tl" | "tr" | "bl" | "br" | "tc" | "bc" | "cc";
+const RETAIL_SET: [string, { anchor: RetailAnchor; x: number; y: number }][] = [
+  ["classic_floatyvitals", { anchor: "tl", x: 10, y: 10 }],
+  ["classic_floatyindicators", { anchor: "tl", x: 10, y: 74 }],
+  ["classic_floatyradar", { anchor: "tr", x: 10, y: 10 }],
+  ["classic_floatymainchat", { anchor: "bl", x: 10, y: 10 }],
+  ["classic_floatytoolbar", { anchor: "br", x: 10, y: 10 }],
+  ["classic_floatypowerbar", { anchor: "bc", x: 0, y: 120 }],
+];
 async function openRetailSet() {
   const r = retailWindows;
   if (!r?.available()) return;
-  for (const name of RETAIL_SET) await r.show(name);
-  log("retail windows open — /retail close to hide, /retail <name> for others", "c-system");
+  for (const [name, place] of RETAIL_SET) await r.show(name, place);
+  $("vitals").style.display = "none"; // the retail vitals replace our own bar
+  log("retail interface loaded — /retail close for the plain panels, /retail reset to reposition", "c-system");
 }
 
 /** show what we are carrying in every item list of an open retail window */

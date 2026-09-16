@@ -28,6 +28,12 @@ export interface OpenWindow {
   trace: DrawRecord[];
 }
 
+/** where a window sits by default: which corner it hugs and how far in from it */
+export type Anchor = "tl" | "tr" | "bl" | "br" | "tc" | "bc" | "cc";
+export interface Placement { anchor: Anchor; x: number; y: number }
+
+const POS_KEY = "acweb.retail.pos";
+
 export interface RetailWindowDeps {
   assets(): Assets | null;
   log(line: string, cls?: string): void;
@@ -41,7 +47,20 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
   const assets = deps.assets();
   const ui: RetailUi | null = assets ? await createRetailUi(assets) : null;
   const open = new Map<string, OpenWindow>();
+  const placements = new Map<string, Placement>();
   let dirty = true;
+
+  /** positions the player has dragged windows to, kept between sessions */
+  let saved: Record<string, { x: number; y: number }> = {};
+  try { saved = JSON.parse(localStorage.getItem(POS_KEY) ?? "{}"); } catch { /* ignore */ }
+  const savePositions = () => {
+    try {
+      const out: Record<string, { x: number; y: number }> = { ...saved };
+      for (const w of open.values()) if (w.offX || w.offY) out[w.layout] = { x: w.offX, y: w.offY };
+      saved = out;
+      localStorage.setItem(POS_KEY, JSON.stringify(out));
+    } catch { /* ignore */ }
+  };
 
   /** the window root of a layout: the top-level element that has children, not the prototypes */
   async function rootOf(did: number): Promise<number | null> {
@@ -54,7 +73,8 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     return best?.id ?? null;
   }
 
-  async function show(name: string): Promise<boolean> {
+  async function show(name: string, place?: Placement): Promise<boolean> {
+    if (place) placements.set(name, place);
     if (!ui) { deps.log("retail layouts need the language dat", "c-error"); return false; }
     const did = ui.layouts.get(name);
     if (!did) { deps.log(`no retail layout called ${name}`, "c-error"); return false; }
@@ -63,7 +83,8 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     const layout = await ui.load(did);
     const root = [...layout.elements.values()].find((e) => e.elementId === rootElementId)!;
     open.set(name, {
-      layout: name, did, rootElementId, trace: [], dx: 0, dy: 0, offX: 0, offY: 0,
+      layout: name, did, rootElementId, trace: [], dx: 0, dy: 0,
+      offX: saved[name]?.x ?? 0, offY: saved[name]?.y ?? 0,
       rect: { x: root.x, y: root.y, w: root.width, h: root.height },
     });
     dirty = true;
@@ -80,6 +101,17 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
    */
   function anchor(w: OpenWindow, vw: number, vh: number) {
     const { x, y, w: rw, h: rh } = w.rect;
+    const p = placements.get(w.layout);
+    if (p) {
+      const left = p.anchor === "tr" || p.anchor === "br" ? vw - rw - p.x
+        : p.anchor === "tc" || p.anchor === "bc" ? (vw - rw) / 2 + p.x
+        : p.anchor === "cc" ? (vw - rw) / 2 + p.x
+        : p.x;
+      const top = p.anchor === "bl" || p.anchor === "br" || p.anchor === "bc" ? vh - rh - p.y
+        : p.anchor === "cc" ? (vh - rh) / 2 + p.y
+        : p.y;
+      return { dx: left - x + w.offX, dy: top - y + w.offY };
+    }
     const cx = x + rw / 2, cy = y + rh / 2;
     const ax = cx < SCREEN_W / 3 ? x
       : cx > (SCREEN_W * 2) / 3 ? vw - (SCREEN_W - x - rw) - rw
@@ -174,11 +206,18 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     drag.w.offY = drag.offY + (e.clientY - drag.startY);
     dirty = true;
   });
-  addEventListener("mouseup", () => { drag = null; });
+  addEventListener("mouseup", () => { if (drag) { drag = null; savePositions(); } });
   addEventListener("resize", () => { dirty = true; });
 
   return {
     available: () => ui !== null,
+    /** put every window back where it started */
+    resetPositions() {
+      for (const w of open.values()) { w.offX = 0; w.offY = 0; }
+      saved = {};
+      try { localStorage.removeItem(POS_KEY); } catch { /* ignore */ }
+      dirty = true;
+    },
     /** fill an item list with icons */
     setItems(elementId: number, items: { icon: number }[]) {
       ui?.setItems(elementId, items);

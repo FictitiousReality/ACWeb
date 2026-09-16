@@ -175,9 +175,11 @@ deno task launch [datDir]          # both of the above in one process, and opens
 - **Explore without a server**: http://127.0.0.1:8000/?auto=1 is a world and
   model viewer. Enter a landblock id (`A9B4` Holtburg, `0002` a dungeon) and a
   radius; the model field loads a Setup and plays its motions.
-- Other tasks: `deno task verify` (parser check), `deno task scenery A9B4`
-  (scenery placement stats), `deno task probe host port` (send a harmless
-  empty-password login and print the server's reply).
+- Other tasks: `deno task verify` (parser check), `deno task inspect` (what is
+  in the dats: how many records of each kind and how much space they take, or
+  `deno task inspect 0x06004CC2` for one file's header and first bytes),
+  `deno task scenery A9B4` (scenery placement stats), `deno task probe host
+  port` (send a harmless empty-password login and print the server's reply).
 
 ## Controls
 

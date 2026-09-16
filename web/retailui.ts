@@ -242,7 +242,9 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     const normal = states.get(NORMAL_STATE);
     if (normal && imagesOf(normal).length) return normal;
     const withArt = [...states.entries()].filter(([, st]) => imagesOf(st).length).sort((a, b) => a[0] - b[0]);
-    return withArt[0]?.[1] ?? normal ?? [...states.values()][0];
+    // never an arbitrary artless state: basefont14's only state is 000D (pressed), whose dark grey
+    // font colour would then be read for every resting label drawn in that font
+    return withArt[0]?.[1] ?? normal;
   }
   /** the nearest link in the chain that actually carries something */
   function nearest<T>(chain: ElementDesc[], pick: (e: ElementDesc) => T | undefined): T | undefined {

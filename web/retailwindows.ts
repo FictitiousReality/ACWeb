@@ -385,21 +385,9 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
 
   /** every element on screen whose retail name matches, with the layout it belongs to */
   async function elementsNamed(re: RegExp): Promise<{ id: number; name: string; layout: number }[]> {
-    if (!ui) return [];
-    const out: { id: number; name: string; layout: number }[] = [];
-    const dids = new Set<number>([...open.values()].map((w) => w.did));
-    for (const d of hostedLayouts) dids.add(d);
-    for (const d of dids) {
-      const l = await ui.load(d);
-      const stack = [...l.elements.values()];
-      while (stack.length) {
-        const e = stack.pop()!;
-        const n = ui.elementName(e.elementId) ?? "";
-        if (re.test(n)) out.push({ id: e.elementId, name: n, layout: d });
-        stack.push(...e.children.values());
-      }
-    }
-    return out;
+    // element ids are global, and a list can be on screen through a page's base chain without its
+    // layout ever being mounted or hosted (the allegiance page inherits classic_allegiance's root)
+    return ui ? await ui.findElements(re) : [];
   }
 
   return {

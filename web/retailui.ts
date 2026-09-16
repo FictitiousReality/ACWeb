@@ -88,6 +88,7 @@ export interface RetailUi {
   pageForPanel(groupDid: number, panelId: number): Promise<{ group: number; page: number } | null>;
   setState(elementId: number, stateId: number): void;
   elementName(id: number): string | undefined;
+  findElements(re: RegExp): Promise<{ id: number; name: string; layout: number }[]>;
   host(fieldId: number, did: number): void;
   preload(did: number): Promise<void>;
   showPage(groupId: number, pageId: number): void;
@@ -186,6 +187,8 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
 
   /** every element of a layout, by element id, so a base reference can find its prototype */
   const indexCache = new Map<number, Promise<Map<number, ElementDesc>>>();
+  /** the layout each indexed element was read from, so an inherited child resolves its own bases */
+  const layoutOf = new Map<ElementDesc, number>();
   function indexOf(did: number): Promise<Map<number, ElementDesc>> {
     let p = indexCache.get(did);
     if (!p) {
@@ -196,6 +199,7 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
           (function walk(m: Map<number, ElementDesc>) {
             for (const e of m.values()) {
               out.set(e.elementId, e);
+              layoutOf.set(e, did);
               walk(e.children);
             }
           })(l.elements);
@@ -729,13 +733,15 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
 
     // an element with no children of its own draws its prototype's: Spellcasting_Bank1..8 are
     // empty, and the SpellList slot row they show belongs to SpellcastingBank_Template
-    const kids = e.children.size ? e.children : (nearest(chain.slice(1), (c) => (c.children.size ? c.children : undefined)) ?? e.children);
+    const owner = e.children.size ? e : nearest(chain.slice(1), (c) => (c.children.size ? c : undefined));
+    const kids = owner?.children ?? e.children;
+    const kidsDid = owner && owner !== e ? layoutOf.get(owner) ?? did : did;
     const pageOf = activePage.get(e.elementId);
     for (const c of inPaintOrder([...kids.values()])) {
       if (closed.has(c.elementId)) continue;
       // a page group shows one page: the chosen one, else the first that hosts a layout
       if (pageOf !== undefined && hosted.has(c.elementId) && c.elementId !== pageOf) continue;
-      await drawElement(ctx, c, did, x, y, trace);
+      await drawElement(ctx, c, kidsDid, x, y, trace);
     }
   }
 
@@ -777,6 +783,17 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     host(fieldId: number, did: number) { hosted.set(fieldId, did); },
     /** of the fields under `groupId`, show only `pageId` */
     showPage(groupId: number, pageId: number) { activePage.set(groupId, pageId); },
+    /** every element in any layout whose retail name matches, with the layout it lives in */
+    async findElements(re: RegExp): Promise<{ id: number; name: string; layout: number }[]> {
+      const out: { id: number; name: string; layout: number }[] = [];
+      for (const d of layouts.values()) {
+        for (const [id, e] of await indexOf(d)) {
+          const n = elementNames.get(id) ?? "";
+          if (re.test(n)) out.push({ id, name: n, layout: layoutOf.get(e) ?? d });
+        }
+      }
+      return out;
+    },
     /** the game's own name for an element id, from EnumMapper 0x2200001B */
     elementName: (id: number) => elementNames.get(id),
     /** whether an element is authored hidden (UICore_Element_hide) */

@@ -369,7 +369,7 @@ $("loginForm").addEventListener("submit", async (ev) => {
         else log(text, "c-system");
       },
       onError: (text) => log(text, "c-error"),
-      onInventory: () => { charPanel.render(); if (vendorWindow.isOpen()) vendorWindow.render(); },
+      onInventory: () => { charPanel.render(); if (vendorWindow.isOpen()) vendorWindow.render(); void fillRetailItems(); },
       onObjectPickedUp: (g) => netWorld?.remove(g),
       onObjectParented: (o) => netWorld?.attach(o),
       onVitals: (v) => { renderVitals(v); charPanel.render(); },
@@ -468,6 +468,7 @@ function showCharacters(list: CharacterList) {
 async function onEnterWorld(guid: number) {
   if (netWorld) netWorld.playerGuid = guid;
   spellBar.show();
+  void openRetailSet();
   $("login").style.display = "none";
   $("hud").classList.add("show");
   player = new PlayerController(client!, streamer!);
@@ -575,6 +576,7 @@ function sendChat(text: string) {
       log(`${r.names().length} layouts; /retail list for all, /retail close to shut them`, "c-system");
     } else if (arg === "list") log(r.names().join(", "), "c-system");
     else if (arg === "close") { for (const n of r.names()) r.hide(n); log("retail windows closed", "c-system"); }
+    else if (arg === "set") void openRetailSet();
     else {
       // a short name is enough: "vitals" finds classic_floatyvitals
       const names = r.names();
@@ -688,6 +690,32 @@ function renderVitals(v: Vitals) {
   };
   set("hp", "vHealth", v.health); set("st", "vStamina", v.stamina); set("mn", "vMana", v.mana);
   void fillRetailVitals(v);
+}
+
+/** the windows retail kept on screen while playing */
+const RETAIL_SET = ["classic_floatyvitals", "classic_floatytoolbar", "classic_floatyradar", "classic_floatypowerbar"];
+async function openRetailSet() {
+  const r = retailWindows;
+  if (!r?.available()) return;
+  for (const name of RETAIL_SET) await r.show(name);
+  log("retail windows open — /retail close to hide, /retail <name> for others", "c-system");
+}
+
+/** show what we are carrying in every item list of an open retail window */
+async function fillRetailItems() {
+  const r = retailWindows;
+  if (!r?.available() || !client) return;
+  const carried = client.inventory().filter((o) => o.icon && !o.wielder);
+  const worn = client.inventory().filter((o) => o.icon && o.wielder === client!.playerGuid);
+  for (const name of ["classic_inventory", "classic_backpack", "classic_paperdoll", "classic_floatytoolbar"]) {
+    if (!r.isOpen(name)) continue;
+    let next = 0;
+    for (const c of await r.itemLists(name)) {
+      // a single 32x32 slot takes one worn item; a grid takes what we are carrying
+      if (c.slots === 1) r.setItems(c.elementId, worn[next] ? [{ icon: worn[next++].icon }] : []);
+      else r.setItems(c.elementId, carried.map((o) => ({ icon: o.icon })));
+    }
+  }
 }
 
 /** drive the retail vitals window's three meters, which run health, stamina, mana top to bottom */

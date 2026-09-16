@@ -103,7 +103,7 @@
     .setting input[type=checkbox] { justify-self: start; }
     .motd { font-size: 12px; font-style: italic; opacity: .85; margin: 6px 0; }
     /* retail's own windows: the 800x600 screen every layout is authored against */
-    #retailui { position: fixed; left: 50%; margin-left: -400px; bottom: 0; width: 800px; height: 600px; z-index: 6; pointer-events: none; image-rendering: pixelated; }
+    #retailui { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 6; pointer-events: none; image-rendering: pixelated; }
     #radar { position: fixed; top: 60px; right: 10px; width: 220px; height: 246px; min-width: 150px; min-height: 176px; max-width: 90vw; max-height: 90vh; display: none; flex-direction: column; z-index: 5; background: rgba(0,0,0,.72); border-radius: 6px; overflow: hidden; resize: both; }
     #radar.show { display: flex; }
     #radarHead { display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: rgba(255,255,255,.06); cursor: move; font-size: 12px; }

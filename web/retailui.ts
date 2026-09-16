@@ -52,10 +52,14 @@ const P = {
   /** a tab panel's pages: each entry pairs a tab element with a page element and an open flag */
   meterPosition: 0x0069,
   panelPages: 0x002e,
+  tabElement: 0x0030,
   pageElement: 0x0031,
   pageOpen: 0x0032,
   tileOffset: 0x0056,
 } as const;
+
+/** UIElement_ItemList: inventory, toolbar and paperdoll slots */
+const ITEM_LIST = 0x10000031;
 
 /** a base chain should be a few hops; this only stops a cycle in bad data */
 const MAX_CHAIN = 8;
@@ -74,6 +78,9 @@ export interface RetailUi {
   layouts: Map<string, number>;
   /** drive a meter from live game state: 0..1 */
   setFill(elementId: number, fraction: number): void;
+  setItems(elementId: number, items: { icon: number }[]): void;
+  itemContainers(did: number): Promise<{ elementId: number; slots: number }[]>;
+  clickTab(elementId: number): boolean;
   load(did: number): Promise<LayoutDesc>;
   /** draw a whole layout, or one element of it by element id; pass `trace` to record what drew */
   draw(
@@ -91,6 +98,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
 
   const master = parseMasterProperty(new BinReader((await assets.portal.readFile(MASTERPROPERTY_ID))!));
   const types = propertyTypes(master);
+  // slots are ordinary elements that carry an item-slot property, not a distinct element type:
+  // the paperdoll's Inv_HandSlot and friends are 32x32 type-0 elements with UI_ItemList_ItemSlotID
+  const propId = (name: string) => [...master.names].find(([, n]) => n === name)?.[0] ?? 0;
+  const SLOT_PROP = propId("UI_ItemList_ItemSlotID");
   const mapper = parseDidMapper(new BinReader((await assets.portal.readFile(LAYOUT_DIDMAPPER_ID))!));
   const layouts = new Map<string, number>();
   for (const [enumValue, did] of mapper.clientEnumToId) {
@@ -100,6 +111,12 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
 
   /** live meter fills by element id, so vitals can be driven by the game */
   const fills = new Map<number, number>();
+  /** live item-list contents by element id: the icons to show in the slots */
+  const itemsOf = new Map<number, { icon: number }[]>();
+  /** which page a tab panel has open, when the player has clicked a tab */
+  const openPage = new Map<number, number>();
+  /** tab element -> the panel and page it switches to, learned while drawing */
+  const tabOwner = new Map<number, { panel: number; page: number }>();
 
   const layoutCache = new Map<number, Promise<LayoutDesc | null>>();
   function load(did: number): Promise<LayoutDesc | null> {
@@ -461,6 +478,25 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     return true;
   }
 
+  /** retail item slots are a 32px grid; a list fits as many columns as its width allows */
+  const SLOT = 32;
+  const isItemContainer = (e: ElementDesc, chain: ElementDesc[]) =>
+    e.type === ITEM_LIST || (SLOT_PROP !== 0 && propOf(chain, undefined, SLOT_PROP) !== undefined);
+
+  async function drawItemList(ctx: CanvasRenderingContext2D, e: ElementDesc, chain: ElementDesc[], x: number, y: number) {
+    if (!isItemContainer(e, chain)) return false;
+    const items = itemsOf.get(e.elementId);
+    if (!items?.length) return true; // a real list with nothing in it yet
+    const columns = Math.max(1, Math.floor(e.width / SLOT));
+    for (let i = 0; i < items.length; i++) {
+      const cx = x + (i % columns) * SLOT, cy = y + Math.floor(i / columns) * SLOT;
+      if (cy + SLOT > y + e.height) break;
+      const icon = items[i].icon ? await sprite(items[i].icon) : null;
+      if (icon) ctx.drawImage(icon, cx, cy, SLOT, SLOT);
+    }
+    return true;
+  }
+
   async function drawElement(
     ctx: CanvasRenderingContext2D,
     e: ElementDesc,
@@ -476,6 +512,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       const imgs = imagesOf(c);
       return imgs.length ? imgs : undefined;
     });
+    if (await drawItemList(ctx, e, chain, x, y)) {
+      trace?.push({ id: e.elementId.toString(16).toUpperCase(), rect: `${x},${y} ${e.width}x${e.height}`, art: "items", painted: true, text: null });
+      return;
+    }
     if (await drawMeter(ctx, e, chain, x, y)) {
       trace?.push({ id: e.elementId.toString(16).toUpperCase(), rect: `${x},${y} ${e.width}x${e.height}`, art: "meter", painted: true, text: null });
       return;
@@ -509,8 +549,13 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
         if (!(entry.value instanceof Map)) continue;
         const fields = entry.value as Map<number, PropertyValue>;
         const pageEl = Number(fields.get(P.pageElement)?.value ?? 0);
-        const open = fields.get(P.pageOpen)?.value === true;
-        if (pageEl && !open) closed.add(pageEl);
+        const tabEl = Number(fields.get(P.tabElement)?.value ?? 0);
+        const chosen = openPage.get(e.elementId);
+        const open = chosen ? chosen === pageEl : fields.get(P.pageOpen)?.value === true;
+        if (pageEl) {
+          tabOwner.set(tabEl, { panel: e.elementId, page: pageEl });
+          if (!open) closed.add(pageEl);
+        }
       }
     }
 
@@ -523,6 +568,33 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   return {
     /** drive a meter from live game state: 0..1 */
     setFill(elementId: number, fraction: number) { fills.set(elementId, fraction); },
+    /** fill an item list with icons */
+    setItems(elementId: number, items: { icon: number }[]) { itemsOf.set(elementId, items); },
+    /** every element of a layout that holds items: grids and single equipment slots */
+    async itemContainers(did: number) {
+      const l = await load(did);
+      const out: { elementId: number; slots: number }[] = [];
+      if (l) {
+        const walk = async (m: Map<number, ElementDesc>) => {
+          for (const e of m.values()) {
+            const chain = await chainOf(e, did);
+            if (isItemContainer(e, chain)) {
+              out.push({ elementId: e.elementId, slots: Math.max(1, Math.floor(e.width / SLOT) * Math.max(1, Math.floor(e.height / SLOT))) });
+            }
+            await walk(e.children);
+          }
+        };
+        await walk(l.elements);
+      }
+      return out;
+    },
+    /** a click on a tab: switch its panel to that tab's page. true when it was a tab. */
+    clickTab(elementId: number) {
+      const owner = tabOwner.get(elementId);
+      if (!owner) return false;
+      openPage.set(owner.panel, owner.page);
+      return true;
+    },
     layouts,
     async load(did: number) {
       const l = await load(did);

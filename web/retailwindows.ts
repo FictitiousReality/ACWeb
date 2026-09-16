@@ -16,6 +16,13 @@ export const SCREEN_W = 800, SCREEN_H = 600;
 export interface OpenWindow {
   layout: string;
   did: number;
+  /** where the window was drawn in viewport pixels, for hit-testing and dragging */
+  dx: number;
+  dy: number;
+  /** the player's own drag offset, on top of the anchored position */
+  offX: number;
+  offY: number;
+  rect: { x: number; y: number; w: number; h: number };
   /** the element that is the window itself, rather than a prototype in the same layout */
   rootElementId: number;
   trace: DrawRecord[];
@@ -53,7 +60,12 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     if (!did) { deps.log(`no retail layout called ${name}`, "c-error"); return false; }
     const rootElementId = await rootOf(did);
     if (rootElementId === null) { deps.log(`${name} has no window root`, "c-error"); return false; }
-    open.set(name, { layout: name, did, rootElementId, trace: [] });
+    const layout = await ui.load(did);
+    const root = [...layout.elements.values()].find((e) => e.elementId === rootElementId)!;
+    open.set(name, {
+      layout: name, did, rootElementId, trace: [], dx: 0, dy: 0, offX: 0, offY: 0,
+      rect: { x: root.x, y: root.y, w: root.width, h: root.height },
+    });
     dirty = true;
     return true;
   }
@@ -61,19 +73,43 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     if (open.delete(name)) dirty = true;
   }
 
+  /**
+   * Retail placed windows absolutely in an 800x600 screen. Rather than shrink the game into a
+   * box, each window keeps its distance from whichever edges it hugs: a window in the bottom
+   * third of the authored screen stays at the bottom of the viewport, and so on.
+   */
+  function anchor(w: OpenWindow, vw: number, vh: number) {
+    const { x, y, w: rw, h: rh } = w.rect;
+    const cx = x + rw / 2, cy = y + rh / 2;
+    const ax = cx < SCREEN_W / 3 ? x
+      : cx > (SCREEN_W * 2) / 3 ? vw - (SCREEN_W - x - rw) - rw
+      : (vw - rw) / 2;
+    const ay = cy < SCREEN_H / 3 ? y
+      : cy > (SCREEN_H * 2) / 3 ? vh - (SCREEN_H - y - rh) - rh
+      : (vh - rh) / 2;
+    return { dx: ax - x + w.offX, dy: ay - y + w.offY };
+  }
+
   async function render() {
     if (!ui) return;
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    if (canvas.width !== SCREEN_W * dpr || canvas.height !== SCREEN_H * dpr) {
-      canvas.width = SCREEN_W * dpr;
-      canvas.height = SCREEN_H * dpr;
+    const vw = canvas.clientWidth || SCREEN_W, vh = canvas.clientHeight || SCREEN_H;
+    if (canvas.width !== Math.round(vw * dpr) || canvas.height !== Math.round(vh * dpr)) {
+      canvas.width = Math.round(vw * dpr);
+      canvas.height = Math.round(vh * dpr);
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, SCREEN_W, SCREEN_H);
+    ctx.clearRect(0, 0, vw, vh);
     for (const w of open.values()) {
       const layout = await ui.load(w.did);
+      const { dx, dy } = anchor(w, vw, vh);
+      w.dx = dx;
+      w.dy = dy;
       w.trace = [];
+      ctx.save();
+      ctx.translate(dx, dy);
       await ui.draw(ctx, layout, w.did, w.rootElementId, w.trace);
+      ctx.restore();
     }
     // the canvas never takes pointer events: clicks are hit-tested in the capture phase below so
     // that a miss falls through to the world underneath (targeting and camera drag keep working)
@@ -86,7 +122,7 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
       for (const r of w.trace) {
         const m = /^(-?\d+),(-?\d+) (\d+)x(\d+)$/.exec(r.rect);
         if (!m) continue;
-        const [rx, ry, rw, rh] = [+m[1], +m[2], +m[3], +m[4]];
+        const [rx, ry, rw, rh] = [+m[1] + w.dx, +m[2] + w.dy, +m[3], +m[4]];
         if (!rw || !rh || x < rx || y < ry || x >= rx + rw || y >= ry + rh) continue;
         const area = rw * rh;
         if (!found || area < found.area) found = { window: w, elementId: parseInt(r.id, 16), area };
@@ -103,6 +139,7 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     if (!h) return; // not on a window: let the world have it
     e.stopPropagation();
     e.preventDefault();
+    if (ui?.clickTab(h.elementId)) { dirty = true; return; }
     deps.onClick?.(h.window.layout, h.elementId);
   }, true);
 
@@ -122,8 +159,37 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     return found.sort((a, b) => a.y - b.y).map((f) => f.id);
   }
 
+  // drag a window by any part of it that is not a button
+  let drag: { w: OpenWindow; startX: number; startY: number; offX: number; offY: number } | null = null;
+  addEventListener("mousedown", (e: MouseEvent) => {
+    if (!open.size) return;
+    const r = canvas.getBoundingClientRect();
+    const h = hit(e.clientX - r.left, e.clientY - r.top);
+    if (!h) return;
+    drag = { w: h.window, startX: e.clientX, startY: e.clientY, offX: h.window.offX, offY: h.window.offY };
+  }, true);
+  addEventListener("mousemove", (e: MouseEvent) => {
+    if (!drag) return;
+    drag.w.offX = drag.offX + (e.clientX - drag.startX);
+    drag.w.offY = drag.offY + (e.clientY - drag.startY);
+    dirty = true;
+  });
+  addEventListener("mouseup", () => { drag = null; });
+  addEventListener("resize", () => { dirty = true; });
+
   return {
     available: () => ui !== null,
+    /** fill an item list with icons */
+    setItems(elementId: number, items: { icon: number }[]) {
+      ui?.setItems(elementId, items);
+      dirty = true;
+    },
+    /** every element of an open window that holds items, with how many slots it has room for */
+    async itemLists(name: string) {
+      const w = open.get(name);
+      if (!ui || !w) return [];
+      return await ui.itemContainers(w.did);
+    },
     meters,
     /** drive a meter from live game state: 0..1 */
     setFill(elementId: number, fraction: number) {

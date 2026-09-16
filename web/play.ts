@@ -567,10 +567,22 @@ function sendChat(text: string) {
   else if (cmd === "pklarena") client.recall("pklarena");
   else if (cmd === "inv" || cmd === "i") charPanel.toggle("items");
   else if (cmd === "retail") {
-    const name = rest.trim();
-    if (!retailWindows?.available()) log("retail layouts need the language dat", "c-error");
-    else if (!name) log(`retail layouts: ${retailWindows.names().join(", ")}`, "c-system");
-    else void retailWindows.toggle(name).then((open) => log(`${name} ${open ? "opened" : "closed"}`, "c-system"));
+    const arg = rest.trim().toLowerCase();
+    const r = retailWindows;
+    if (!r?.available()) log("retail layouts need the language dat", "c-error");
+    else if (!arg) {
+      log(`retail windows: /retail vitals | toolbar | chat | radar | powerbar | vendor | inventory`, "c-system");
+      log(`${r.names().length} layouts; /retail list for all, /retail close to shut them`, "c-system");
+    } else if (arg === "list") log(r.names().join(", "), "c-system");
+    else if (arg === "close") { for (const n of r.names()) r.hide(n); log("retail windows closed", "c-system"); }
+    else {
+      // a short name is enough: "vitals" finds classic_floatyvitals
+      const names = r.names();
+      const hit = names.find((n) => n === arg) ?? names.find((n) => n === `classic_floaty${arg}`) ??
+        names.find((n) => n === `classic_${arg}`) ?? names.find((n) => n.includes(arg));
+      if (!hit) log(`no retail layout matching "${arg}"`, "c-error");
+      else void r.toggle(hit).then((open) => log(`${hit} ${open ? "opened" : "closed"}`, "c-system"));
+    }
   }
   else if (cmd === "char" || cmd === "c") charPanel.toggle();
   else log(`unknown command /${cmd}`, "c-error");

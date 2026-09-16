@@ -75,7 +75,8 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
       w.trace = [];
       await ui.draw(ctx, layout, w.did, w.rootElementId, w.trace);
     }
-    canvas.style.pointerEvents = open.size ? "auto" : "none";
+    // the canvas never takes pointer events: clicks are hit-tested in the capture phase below so
+    // that a miss falls through to the world underneath (targeting and camera drag keep working)
   }
 
   /** the smallest drawn element covering a point, so a button wins over the panel behind it */
@@ -94,13 +95,16 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     return found ? { window: found.window, elementId: found.elementId } : null;
   }
 
-  canvas.addEventListener("click", (e: MouseEvent) => {
+  addEventListener("click", (e: MouseEvent) => {
+    if (!open.size) return;
     const r = canvas.getBoundingClientRect();
-    const h = hit(e.clientX - r.left, e.clientY - r.top);
-    if (!h) return;
+    const scale = r.width / SCREEN_W;
+    const h = hit((e.clientX - r.left) / scale, (e.clientY - r.top) / scale);
+    if (!h) return; // not on a window: let the world have it
     e.stopPropagation();
+    e.preventDefault();
     deps.onClick?.(h.window.layout, h.elementId);
-  });
+  }, true);
 
   /** the meter elements of an open window, top to bottom - health, stamina, mana in the vitals */
   async function meters(name: string): Promise<number[]> {

@@ -48,8 +48,8 @@ const POS_KEY = "acweb.retail.pos";
 export interface RetailWindowDeps {
   assets(): Assets | null;
   log(line: string, cls?: string): void;
-  /** a click landed on an element of an open window */
-  onClick?(layout: string, elementId: number): void;
+  /** a click landed on an element of an open window, with its retail name and any panel it opens */
+  onClick?(layout: string, elementId: number, name: string, panelId: number): void;
 }
 
 export async function createRetailWindows(deps: RetailWindowDeps) {
@@ -197,14 +197,14 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
 
   addEventListener("click", (e: MouseEvent) => {
     if (!open.size) return;
+    // the canvas fills the viewport 1:1, so client coordinates are canvas coordinates
     const r = canvas.getBoundingClientRect();
-    const scale = r.width / SCREEN_W;
-    const h = hit((e.clientX - r.left) / scale, (e.clientY - r.top) / scale);
+    const h = hit(e.clientX - r.left, e.clientY - r.top);
     if (!h) return; // not on a window: let the world have it
     e.stopPropagation();
     e.preventDefault();
     if (ui?.clickTab(h.elementId)) { dirty = true; return; }
-    deps.onClick?.(h.window.layout, h.elementId);
+    void handleClick(h.window, h.elementId);
   }, true);
 
   /** the meter elements of an open window, top to bottom - health, stamina, mana in the vitals */
@@ -296,6 +296,14 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
       mounts.set(chosen, { x: f.x, y: f.y, w: f.width, h: f.height, edges: f.edges, hidden, readOrder: f.readOrder });
       if (!hidden) { await show(chosen); shown.push(chosen); }
     }
+    // the spell bar is not a gameplay field - retail toggled it - but it is core, so it is up by default
+    if (ui.layouts.has("classic_spellcasting") && !open.has("classic_spellcasting")) {
+      const l = await ui.load(ui.layouts.get("classic_spellcasting")!);
+      const r = [...l.elements.values()].sort((a, b) => b.children.size - a.children.size)[0];
+      if (r) mounts.set("classic_spellcasting", { x: r.x, y: r.y, w: r.width, h: r.height, edges: [1, 2, 1, 2], hidden: false, readOrder: 50 });
+      await show("classic_spellcasting");
+      shown.push("classic_spellcasting");
+    }
     for (const w of open.values()) await hostFields(w.did);
     // everything the screen needs, fetched together instead of one sprite per await while drawing
     await Promise.all([...open.values()].map((w) => ui!.preload(w.did)));
@@ -339,6 +347,28 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     }
   }
 
+  /**
+   * A click on a retail element. Toolbar panel buttons carry Element_PanelID and open that page
+   * in the side panel; everything else goes to the client by its retail name.
+   */
+  async function handleClick(w: OpenWindow, elementId: number) {
+    if (!ui) return;
+    // the element may live in a layout hosted inside the window, so try them all
+    const dids = [w.did, ...hostedLayouts];
+    for (const d of dids) {
+      const panelId = await ui.panelIdOf(elementId, d);
+      if (!panelId) continue;
+      const panel = open.get("classic_floatypanel");
+      if (panel) {
+        const page = await ui.pageForPanel(panel.did, panelId);
+        if (page) { ui.showPage(page.group, page.page); dirty = true; }
+      }
+      deps.onClick?.(w.layout, elementId, ui.elementName(elementId) ?? "", panelId);
+      return;
+    }
+    deps.onClick?.(w.layout, elementId, ui.elementName(elementId) ?? "", 0);
+  }
+
   /** the element of an open window with this retail name, if any */
   async function elementByName(layout: string, name: string): Promise<number | null> {
     const w = open.get(layout);
@@ -353,9 +383,33 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     return null;
   }
 
+  /** every element on screen whose retail name matches, with the layout it belongs to */
+  async function elementsNamed(re: RegExp): Promise<{ id: number; name: string; layout: number }[]> {
+    if (!ui) return [];
+    const out: { id: number; name: string; layout: number }[] = [];
+    const dids = new Set<number>([...open.values()].map((w) => w.did));
+    for (const d of hostedLayouts) dids.add(d);
+    for (const d of dids) {
+      const l = await ui.load(d);
+      const stack = [...l.elements.values()];
+      while (stack.length) {
+        const e = stack.pop()!;
+        const n = ui.elementName(e.elementId) ?? "";
+        if (re.test(n)) out.push({ id: e.elementId, name: n, layout: d });
+        stack.push(...e.children.values());
+      }
+    }
+    return out;
+  }
+
   return {
     available: () => ui !== null,
     mountScreen,
+    elementsNamed,
+    setText: (id: number, lines: { text: string; color?: string }[]) => { ui?.setText(id, lines); dirty = true; },
+    setBlips: (id: number, blips: { dx: number; dy: number; color: string }[]) => { ui?.setBlips(id, blips); dirty = true; },
+    fill: (id: number, f: number) => { ui?.setFill(id, f); dirty = true; },
+    setRows: (id: number, rows: Record<string, string>[]) => { ui?.setRows(id, rows); dirty = true; },
     /** the live chat log, drawn into retail's main chat window */
     async setChat(lines: { text: string; color?: string }[]) {
       const id = await elementByName("classic_floatymainchat", "ChatLogField");

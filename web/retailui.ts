@@ -82,6 +82,10 @@ export interface RetailUi {
   setFill(elementId: number, fraction: number): void;
   setItems(elementId: number, items: { icon: number }[]): void;
   setText(elementId: number, lines: { text: string; color?: string }[]): void;
+  setBlips(elementId: number, blips: { dx: number; dy: number; color: string }[]): void;
+  setRows(elementId: number, rows: Record<string, string>[]): void;
+  panelIdOf(elementId: number, did: number): Promise<number>;
+  pageForPanel(groupDid: number, panelId: number): Promise<{ group: number; page: number } | null>;
   setState(elementId: number, stateId: number): void;
   elementName(id: number): string | undefined;
   host(fieldId: number, did: number): void;
@@ -111,6 +115,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   // the paperdoll's Inv_HandSlot and friends are 32x32 type-0 elements with UI_ItemList_ItemSlotID
   const propId = (name: string) => [...master.names].find(([, n]) => n === name)?.[0] ?? 0;
   const SLOT_PROP = propId("UI_ItemList_ItemSlotID");
+  const PANEL_ID_PROP = propId("UICore_Element_PanelID");
+  const ENTRY_TEMPLATES = propId("UICore_ListBox_entry_templates");
+  const TEMPLATE_LAYOUT = propId("UICore_ListBox_entry_template_layout");
+  const TEMPLATE_ELEMENT = propId("UICore_ListBox_entry_template_element");
   const HIDE_PROP = propId("UICore_Element_hide");
   const elementNames = parseEnumMapper(new BinReader((await assets.portal.readFile(UIELEMENTID_ENUMMAPPER_ID))!)).idToString;
   const mapper = parseDidMapper(new BinReader((await assets.portal.readFile(LAYOUT_DIDMAPPER_ID))!));
@@ -129,6 +137,19 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   const hosted = new Map<number, number>(); // field element id -> layout did drawn inside it
   /** which page a PanelPages-style field group currently shows, by the host element id */
   const activePage = new Map<number, number>();
+
+  /**
+   * Rows of a template list, by list element id. A row is the list's entry template drawn again
+   * with its named children's text replaced (VassalEntryTemplate: VassalNameWrapperField,
+   * VassalExperience, VassalOffline), stacked by the template's height, as OpenAC's
+   * UiTemplateListBox stacks rows at the viewport's content height.
+   */
+  const rowsOf = new Map<number, Record<string, string>[]>();
+  /** text forced on named elements while one row is being drawn */
+  let rowText: Record<string, string> | null = null;
+
+  /** radar blips by element id: offsets in -1..1 of the dial radius, plus a colour */
+  const blipsOf = new Map<number, { dx: number; dy: number; color: string }[]>();
 
   /** live text blocks by element id: lines drawn bottom-up inside the element, newest last */
   const textBlocks = new Map<number, { text: string; color?: string }[]>();
@@ -337,10 +358,15 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     x: number,
     y: number,
   ): Promise<string | null> {
-    const entry = propOf(chain, st, P.textEntry);
-    const info = entry?.value as { stringId: number; tableId: number } | undefined;
-    if (!info || typeof info !== "object" || !("stringId" in info) || !info.tableId) return null;
-    const text = (await strings(info.tableId)).get(info.stringId);
+    let text: string | undefined;
+    const forcedName = rowText ? elementNames.get(chain[0].elementId) : undefined;
+    if (rowText && forcedName && forcedName in rowText) text = rowText[forcedName];
+    else {
+      const entry = propOf(chain, st, P.textEntry);
+      const info = entry?.value as { stringId: number; tableId: number } | undefined;
+      if (!info || typeof info !== "object" || !("stringId" in info) || !info.tableId) return null;
+      text = (await strings(info.tableId)).get(info.stringId);
+    }
     if (!text) return null;
 
     const fontProp = propOf(chain, st, P.textFont) ?? firstOf(propOf(chain, st, P.textFonts));
@@ -586,6 +612,34 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     }
   }
 
+  /** draw a template list's rows; true when the element was a list with rows to show */
+  async function drawRows(ctx: CanvasRenderingContext2D, e: ElementDesc, chain: ElementDesc[], did: number, x: number, y: number, trace?: DrawRecord[]) {
+    const rows = rowsOf.get(e.elementId);
+    if (!rows) return false;
+    const templates = propOf(chain, undefined, ENTRY_TEMPLATES);
+    const first = Array.isArray(templates?.value) ? (templates.value as PropertyValue[])[0] : undefined;
+    if (!first || !(first.value instanceof Map)) return false;
+    const fields = first.value as Map<number, PropertyValue>;
+    const tplDid = Number(fields.get(TEMPLATE_LAYOUT)?.value ?? did) || did;
+    const tplId = Number(fields.get(TEMPLATE_ELEMENT)?.value ?? 0);
+    const tpl = (await indexOf(tplDid)).get(tplId);
+    if (!tpl) return false;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, e.width, e.height);
+    ctx.clip();
+    let top = y;
+    for (const row of rows) {
+      if (top >= y + e.height) break;
+      rowText = row;
+      await drawElement(ctx, tpl, tplDid, x - tpl.x, top - tpl.y, trace);
+      rowText = null;
+      top += tpl.height || 16;
+    }
+    ctx.restore();
+    return true;
+  }
+
   async function drawElement(
     ctx: CanvasRenderingContext2D,
     e: ElementDesc,
@@ -607,6 +661,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       const imgs = imagesOf(c);
       return imgs.length ? imgs : undefined;
     });
+    if (await drawRows(ctx, e, chain, did, x, y, trace)) {
+      trace?.push({ id: e.elementId.toString(16).toUpperCase(), rect: `${x},${y} ${e.width}x${e.height}`, art: "rows", painted: true, text: null });
+      return;
+    }
     if (await drawItemList(ctx, e, chain, x, y)) {
       trace?.push({ id: e.elementId.toString(16).toUpperCase(), rect: `${x},${y} ${e.width}x${e.height}`, art: "items", painted: true, text: null });
       return;
@@ -630,6 +688,18 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     const drewText = await drawText(ctx, chain, st, x, y);
     const block = textBlocks.get(e.elementId);
     if (block?.length) await drawBlock(ctx, chain, block, x, y, e.width, e.height);
+    const blips = blipsOf.get(e.elementId);
+    if (blips) {
+      // the radar dial: Radar_Radius is 50 around the centre of the 120x120 image
+      const cx = x + e.width / 2, cy = y + e.height / 2, radius = Math.min(e.width, e.height) / 2 - 10;
+      for (const b of blips) {
+        if (Math.hypot(b.dx, b.dy) > 1) continue;
+        ctx.beginPath();
+        ctx.arc(cx + b.dx * radius, cy + b.dy * radius, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = b.color;
+        ctx.fill();
+      }
+    }
     trace?.push({
       id: e.elementId.toString(16).toUpperCase(),
       rect: `${x},${y} ${e.width}x${e.height}`,
@@ -657,8 +727,11 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       }
     }
 
+    // an element with no children of its own draws its prototype's: Spellcasting_Bank1..8 are
+    // empty, and the SpellList slot row they show belongs to SpellcastingBank_Template
+    const kids = e.children.size ? e.children : (nearest(chain.slice(1), (c) => (c.children.size ? c.children : undefined)) ?? e.children);
     const pageOf = activePage.get(e.elementId);
-    for (const c of inPaintOrder([...e.children.values()])) {
+    for (const c of inPaintOrder([...kids.values()])) {
       if (closed.has(c.elementId)) continue;
       // a page group shows one page: the chosen one, else the first that hosts a layout
       if (pageOf !== undefined && hosted.has(c.elementId) && c.elementId !== pageOf) continue;
@@ -708,6 +781,35 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     elementName: (id: number) => elementNames.get(id),
     /** whether an element is authored hidden (UICore_Element_hide) */
     isHidden: (e: ElementDesc) => HIDE_PROP !== 0 && e.properties.get(HIDE_PROP)?.value === true,
+    /** rows for a template list: each row maps the template's child names to text */
+    setRows(elementId: number, rows: Record<string, string>[]) { rowsOf.set(elementId, rows); },
+    /** dots on a radar element, in -1..1 of its radius */
+    setBlips(elementId: number, blips: { dx: number; dy: number; color: string }[]) { blipsOf.set(elementId, blips); },
+    /** the panel a button opens, from UICore_Element_PanelID anywhere on its chain */
+    async panelIdOf(elementId: number, did: number): Promise<number> {
+      if (!PANEL_ID_PROP) return 0;
+      const e = (await indexOf(did)).get(elementId);
+      if (!e) return 0;
+      const v = propOf(await chainOf(e, did), undefined, PANEL_ID_PROP);
+      return typeof v?.value === "number" ? v.value : 0;
+    },
+    /** in a page group, the child field whose PanelID matches */
+    async pageForPanel(groupDid: number, panelId: number): Promise<{ group: number; page: number } | null> {
+      if (!PANEL_ID_PROP) return null;
+      const l = await load(groupDid);
+      if (!l) return null;
+      const stack = [...l.elements.values()];
+      while (stack.length) {
+        const e = stack.pop()!;
+        if (elementNames.get(e.elementId) === "PanelPages") {
+          for (const c of e.children.values()) {
+            if (c.properties.get(PANEL_ID_PROP)?.value === panelId) return { group: e.elementId, page: c.elementId };
+          }
+        }
+        stack.push(...e.children.values());
+      }
+      return null;
+    },
     /** live lines of text inside an element (the chat log) */
     setText(elementId: number, lines: { text: string; color?: string }[]) { textBlocks.set(elementId, lines); },
     /** force a state on an element (rollover, pressed); 0 clears it */

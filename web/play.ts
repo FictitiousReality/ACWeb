@@ -10,7 +10,7 @@ import { createCharacterPanel, loadSettings, itemAction, isOnGround, type Settin
 import { createSpellBar } from "./spellbar.ts";
 import { createBuffs } from "./buffs.ts";
 import { createVendorWindow } from "./vendor.ts";
-import { createRadar } from "./radar.ts";
+import { createRadar, blipColor, project } from "./radar.ts";
 import { createRetailWindows } from "./retailwindows.ts";
 import { SkyRenderer, timeOfDayFromServerTime } from "../src/render/sky.ts";
 import { GameClient } from "../src/net/client.ts";
@@ -223,7 +223,14 @@ async function openDats() {
   retailWindows = await createRetailWindows({
     assets: () => assets,
     log,
-    onClick: (layout, elementId) => log(`${layout}: clicked element ${elementId.toString(16).toUpperCase()}`, "c-system"),
+    onClick: (_layout, _elementId, name, panelId) => {
+      if (panelId) return; // the window manager already opened that page
+      const mode = /^(Peace|Melee|Missile|Magic)ModeButton$/.exec(name);
+      if (mode && client) { client.setCombatMode({ Peace: 1, Melee: 2, Missile: 4, Magic: 8 }[mode[1]]!); return; }
+      if (name === "PanelButton_UseSelectedButton") { useTarget(); return; }
+      if (name === "PanelButton_ExamineSelectedButton") { log("appraisal is not implemented yet", "c-system"); return; }
+      if (name === "CloseInvPanelButton" || /^Close\w+Button$/.test(name)) return; // panels stay for now
+    },
   });
   const region = await assets.region();
   streamer = new WorldStreamer(assets, region);
@@ -383,11 +390,11 @@ $("loginForm").addEventListener("submit", async (ev) => {
       onObjectPickedUp: (g) => netWorld?.remove(g),
       onObjectParented: (o) => netWorld?.attach(o),
       onVitals: (v) => { renderVitals(v); charPanel.render(); },
-      onCharacterData: () => { charPanel.render(); spellBar.render(); if (vendorWindow.isOpen()) vendorWindow.render(); },
+      onCharacterData: () => { charPanel.render(); spellBar.render(); if (vendorWindow.isOpen()) vendorWindow.render(); void fillRetailPanels(); },
       onUseDone: (code, text) => { spellBar.onUseDone(code, text); vendorWindow.onUseDone(code, text); },
       onVendor: (v) => vendorWindow.open(v),
       onEnchantments: () => buffs.render(),
-      onAllegiance: () => charPanel.render(),
+      onAllegiance: () => { charPanel.render(); void fillRetailPanels(); },
       onTargetHealth: (g, f) => { if (g === targetGuid) { targetHealth = f; renderTarget(); } },
       onCharacterList: showCharacters,
       onCharacterCreated: (result, _guid, name) => { loginStatus.textContent = result === "Ok" ? `created ${name}` : `create failed: ${result}`; },
@@ -585,7 +592,11 @@ function sendChat(text: string) {
       log(`retail windows: /retail vitals | toolbar | chat | radar | powerbar | vendor | inventory`, "c-system");
       log(`${r.names().length} layouts; /retail list for all, /retail close to shut them`, "c-system");
     } else if (arg === "list") log(r.names().join(", "), "c-system");
-    else if (arg === "close") { for (const n of r.names()) r.hide(n); $("vitals").style.display = "block"; log("retail windows closed", "c-system"); }
+    else if (arg === "close") {
+      for (const n of r.names()) r.hide(n);
+      for (const id of ["vitals", "panelbar", "tools"]) $(id).style.display = "";
+      log("retail windows closed", "c-system");
+    }
     else if (arg === "reset") { r.resetPositions(); log("retail window positions reset", "c-system"); }
     else if (arg === "set") void openRetailSet();
     else {
@@ -682,6 +693,7 @@ function renderTarget() {
   $("targetName").textContent = o ? `${o.name}${targetHealth !== null ? `  ${Math.round(targetHealth * 100)}%` : ""}` : "";
   // loose items are picked up, not "used": using clothing does nothing on the server
   $("btnUse").textContent = o && isOnGround(o) ? "Pick up (U)" : "Use (U)";
+  void fillRetailTarget();
 }
 
 /** Use the target, or pick it up when it is an item lying on the ground. */
@@ -708,7 +720,10 @@ async function openRetailSet() {
   const r = retailWindows;
   if (!r?.available()) return;
   const shown = await r.mountScreen();
-  $("vitals").style.display = "none"; // the retail vitals replace our own bar
+  void fillRetailPanels();
+  void fillRetailItems();
+  // retail's own windows replace the plain vitals, panel bar and tool buttons
+  for (const id of ["vitals", "panelbar", "tools"]) $(id).style.display = "none";
   log(`retail interface loaded (${shown.length} windows) — /retail close for the plain panels, /retail reset to reposition`, "c-system");
 }
 
@@ -725,12 +740,17 @@ async function fillRetailItems() {
     if (sc.object) return client!.objects.get(sc.object)?.icon ?? 0;
     return sc.spell ? spellTable?.get(sc.spell)?.iconId ?? 0 : 0;
   };
-  let wornNext = 0, toolbarSlot = 0;
+  // the toolbar names its slots: ShortcutBar_Shortcut1..9Button, then ShortcutBar2_Shortcut1..9Button
+  for (const el of await r.elementsNamed(/^ShortcutBar(2?)_Shortcut(\d)Button$/)) {
+    const m = /^ShortcutBar(2?)_Shortcut(\d)Button$/.exec(el.name)!;
+    const index = (m[1] ? 9 : 0) + Number(m[2]) - 1;
+    const icon = shortcutIcon(index);
+    r.setItems(el.id, icon ? [{ icon }] : []);
+  }
+  let wornNext = 0;
   for (const c of await r.allItemContainers()) {
-    if (c.layout === "classic_floatytoolbar") {
-      const icon = shortcutIcon(toolbarSlot++);
-      r.setItems(c.elementId, icon ? [{ icon }] : []);
-    } else if (c.slots === 1) {
+    if (c.layout === "classic_floatytoolbar" || c.layout === "classic_toolbar") continue; // bound by name above
+    if (c.slots === 1) {
       // a single 32x32 slot on the paperdoll takes one worn item
       r.setItems(c.elementId, worn[wornNext] ? [{ icon: worn[wornNext++].icon }] : []);
     } else {
@@ -738,6 +758,88 @@ async function fillRetailItems() {
     }
   }
 }
+
+/**
+ * The side panel's pages, from live state. Skills and character info are areas retail filled
+ * itself, so they are text blocks; the allegiance vassal list is a template list of rows; the
+ * spell bar's slot row shows the current bar's spells.
+ */
+async function fillRetailPanels() {
+  const r = retailWindows;
+  if (!r?.available() || !client) return;
+  const int = client.properties.int, i64 = client.properties.int64;
+  const me = client.objects.get(client.playerGuid);
+
+  // character info: the same figures the status tab shows
+  const level = int.get(25);
+  const info: { text: string }[] = [];
+  info.push({ text: me?.name ?? "" });
+  if (level) info.push({ text: `Level ${level}` });
+  const xp = i64.get(1);
+  if (xp !== undefined) info.push({ text: `Experience ${xp.toLocaleString()}` });
+  const credits = int.get(24);
+  if (credits !== undefined) info.push({ text: `Skill credits ${credits}` });
+  const burden = int.get(5);
+  if (burden !== undefined) info.push({ text: `Burden ${burden.toLocaleString()}` });
+  for (const el of await r.elementsNamed(/^CharacterInfoText$/)) r.setText(el.id, info.reverse());
+
+  // skills: name and effective base for every trained or specialised skill
+  const skills: { text: string }[] = [];
+  for (const [id, sk] of client.skills) {
+    if (sk.advancement < 2) continue;
+    const base = skillTable?.get(id);
+    if (!base) continue;
+    skills.push({ text: `${base.name.padEnd(22)} ${sk.initLevel + sk.ranks}${sk.advancement === 3 ? "  (spec)" : ""}` });
+  }
+  skills.sort((a, b) => a.text.localeCompare(b.text));
+  for (const el of await r.elementsNamed(/^SkillManagement_Attribute_Field$/)) r.setText(el.id, skills.reverse());
+
+  // allegiance: one row per member, in the vassal list's own template
+  const a = client.allegiance;
+  if (a) {
+    const rows = a.members.map((m) => ({
+      VassalNameWrapperField: `${m.name}  (rank ${m.rank}, level ${m.level})`,
+      VassalExperience: m.cpCached ? `${m.cpCached.toLocaleString()} xp` : "",
+      VassalOffline: m.online ? "" : "offline",
+    }));
+    for (const el of await r.elementsNamed(/^VassalsListBox$/)) r.setRows(el.id, rows);
+  }
+
+  // the spell bar: the active bar's spells in the shared slot row
+  const bar = client.spellBars[0] ?? [];
+  const icons = bar.map((id) => ({ icon: spellTable?.get(id)?.iconId ?? 0 })).filter((x) => x.icon);
+  for (const el of await r.elementsNamed(/^SpellList$/)) r.setItems(el.id, icons);
+}
+
+/** the toolbar's selected-object field: the target's name and its health */
+async function fillRetailTarget() {
+  const r = retailWindows;
+  if (!r?.available()) return;
+  const o = targetGuid !== null ? client?.objects.get(targetGuid) : null;
+  for (const el of await r.elementsNamed(/^SelectedObjectText$/)) r.setText(el.id, o ? [{ text: o.name }] : []);
+  for (const el of await r.elementsNamed(/^ToolbarHealthMeter$/)) r.fill(el.id, o && targetHealth !== null ? targetHealth : 0);
+}
+
+/** blips on retail's radar dial from what is around us, in the game's own radar colours */
+let retailRadarImage: number | null = null;
+async function fillRetailRadar() {
+  const r = retailWindows;
+  if (!r?.available() || !player || !netWorld || !client) return;
+  if (retailRadarImage === null) retailRadarImage = (await r.elementsNamed(/^RadarImage$/))[0]?.id ?? 0;
+  if (!retailRadarImage) return;
+  const range = 60; // metres shown edge to centre
+  const self = { x: player.pos.x, y: player.pos.y, yaw: player.yaw };
+  const blips: { dx: number; dy: number; color: string }[] = [];
+  for (const [guid, e] of netWorld.entities) {
+    if (guid === client.playerGuid) continue;
+    const color = blipColor(e.obj);
+    if (!color) continue;
+    const p = project(self, e.root.position.x, e.root.position.y, 1 / range, false);
+    blips.push({ dx: p.x, dy: p.y, color });
+  }
+  r.setBlips(retailRadarImage, blips);
+}
+let radarAccum = 0;
 
 /** drive the retail vitals window's three meters, which run health, stamina, mana top to bottom */
 let retailVitalMeters: number[] | null = null;
@@ -909,6 +1011,8 @@ function frame(now: number) {
   buffs.tick(dt);
   vendorWindow.tick();
   radar.tick(dt);
+  radarAccum += dt;
+  if (radarAccum > 0.25) { radarAccum = 0; void fillRetailRadar(); }
   void retailWindows?.tick();
   if (player) {
     const jb = $("jumpbar");

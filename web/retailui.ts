@@ -340,6 +340,21 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     return painted;
   }
 
+  /**
+   * Paint order among siblings. readOrder is unique among siblings in all 101 layouts (and only
+   * globally unique in 29), so it is a per-parent order. It does not explain the tab strip: the
+   * vendor window's TabBackground is a childless type-8 tab-panel shell whose opaque backing art
+   * would bury the three tabs its sibling panel draws. zLevel is no help either - it is a
+   * window-level stacking value (RootSmartBox 9999, RootChat 900, tooltips 0xFFFFFFFF) and the
+   * reference client never reads it. Treating an empty tab-panel shell as backing that paints
+   * first is a heuristic, not something the data states outright.
+   */
+  const isBackingShell = (e: ElementDesc) => e.type === 8 && e.children.size === 0 && !e.properties.has(P.panelPages);
+  const inPaintOrder = (list: ElementDesc[]) =>
+    [...list].sort((a, b) =>
+      (isBackingShell(a) ? 0 : 1) - (isBackingShell(b) ? 0 : 1) || a.readOrder - b.readOrder
+    );
+
   async function drawElement(
     ctx: CanvasRenderingContext2D,
     e: ElementDesc,
@@ -389,7 +404,7 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       }
     }
 
-    for (const c of [...e.children.values()].sort((a, b) => a.readOrder - b.readOrder)) {
+    for (const c of inPaintOrder([...e.children.values()])) {
       if (closed.has(c.elementId)) continue;
       await drawElement(ctx, c, did, x, y, trace);
     }
@@ -409,7 +424,7 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       rootElementId?: number,
       trace?: DrawRecord[],
     ) {
-      const tops = [...layout.elements.values()].sort((a, b) => a.readOrder - b.readOrder);
+      const tops = inPaintOrder([...layout.elements.values()]);
       const chosen = rootElementId === undefined ? tops : tops.filter((e) => e.elementId === rootElementId);
       for (const e of chosen) await drawElement(ctx, e, did, 0, 0, trace);
     },

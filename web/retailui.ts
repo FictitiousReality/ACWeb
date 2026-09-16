@@ -19,6 +19,8 @@ import {
   MASTERPROPERTY_ID,
   MediaType,
   parseDidMapper,
+  parseEnumMapper,
+  UIELEMENTID_ENUMMAPPER_ID,
   parseFont,
   parseLayoutDesc,
   parseMasterProperty,
@@ -79,6 +81,8 @@ export interface RetailUi {
   /** drive a meter from live game state: 0..1 */
   setFill(elementId: number, fraction: number): void;
   setItems(elementId: number, items: { icon: number }[]): void;
+  elementName(id: number): string | undefined;
+  isHidden(e: ElementDesc): boolean;
   itemContainers(did: number): Promise<{ elementId: number; slots: number }[]>;
   clickTab(elementId: number): boolean;
   load(did: number): Promise<LayoutDesc>;
@@ -102,6 +106,8 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   // the paperdoll's Inv_HandSlot and friends are 32x32 type-0 elements with UI_ItemList_ItemSlotID
   const propId = (name: string) => [...master.names].find(([, n]) => n === name)?.[0] ?? 0;
   const SLOT_PROP = propId("UI_ItemList_ItemSlotID");
+  const HIDE_PROP = propId("UICore_Element_hide");
+  const elementNames = parseEnumMapper(new BinReader((await assets.portal.readFile(UIELEMENTID_ENUMMAPPER_ID))!)).idToString;
   const mapper = parseDidMapper(new BinReader((await assets.portal.readFile(LAYOUT_DIDMAPPER_ID))!));
   const layouts = new Map<string, number>();
   for (const [enumValue, did] of mapper.clientEnumToId) {
@@ -568,6 +574,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   return {
     /** drive a meter from live game state: 0..1 */
     setFill(elementId: number, fraction: number) { fills.set(elementId, fraction); },
+    /** the game's own name for an element id, from EnumMapper 0x2200001B */
+    elementName: (id: number) => elementNames.get(id),
+    /** whether an element is authored hidden (UICore_Element_hide) */
+    isHidden: (e: ElementDesc) => HIDE_PROP !== 0 && e.properties.get(HIDE_PROP)?.value === true,
     /** fill an item list with icons */
     setItems(elementId: number, items: { icon: number }[]) { itemsOf.set(elementId, items); },
     /** every element of a layout that holds items: grids and single equipment slots */

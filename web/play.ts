@@ -693,27 +693,13 @@ function renderVitals(v: Vitals) {
   void fillRetailVitals(v);
 }
 
-/**
- * The interface retail put on screen while playing, in the places it put them: vitals and the
- * indicator row top left, radar top right, chat bottom left, the toolbar and power bar along the
- * bottom. The floaty layouts are all authored at 0,0 because the client positions them, so the
- * placement lives here.
- */
-type RetailAnchor = "tl" | "tr" | "bl" | "br" | "tc" | "bc" | "cc";
-const RETAIL_SET: [string, { anchor: RetailAnchor; x: number; y: number }][] = [
-  ["classic_floatyvitals", { anchor: "tl", x: 10, y: 10 }],
-  ["classic_floatyindicators", { anchor: "tl", x: 10, y: 74 }],
-  ["classic_floatyradar", { anchor: "tr", x: 10, y: 10 }],
-  ["classic_floatymainchat", { anchor: "bl", x: 10, y: 10 }],
-  ["classic_floatytoolbar", { anchor: "br", x: 10, y: 10 }],
-  ["classic_floatypowerbar", { anchor: "bc", x: 0, y: 120 }],
-];
+/** The retail screen: classic_gameplay says where every window mounts and which start visible. */
 async function openRetailSet() {
   const r = retailWindows;
   if (!r?.available()) return;
-  for (const [name, place] of RETAIL_SET) await r.show(name, place);
+  const shown = await r.mountScreen();
   $("vitals").style.display = "none"; // the retail vitals replace our own bar
-  log("retail interface loaded — /retail close for the plain panels, /retail reset to reposition", "c-system");
+  log(`retail interface loaded (${shown.length} windows) — /retail close for the plain panels, /retail reset to reposition`, "c-system");
 }
 
 /** show what we are carrying in every item list of an open retail window */

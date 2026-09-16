@@ -13,9 +13,18 @@ import { createRetailUi, type DrawRecord, type RetailUi } from "./retailui.ts";
 /** the virtual screen every retail layout is authored against */
 export const SCREEN_W = 800, SCREEN_H = 600;
 
+/** where the retail screen mounts a window: the field's rect and its edge anchors */
+export interface Mount {
+  x: number; y: number; w: number; h: number;
+  /** left/top/right/bottom modes: 1 keeps the distance from the left/top edge, 2 from the right/bottom */
+  edges: [number, number, number, number];
+  hidden: boolean;
+}
+
 export interface OpenWindow {
   layout: string;
   did: number;
+  mount?: Mount;
   /** where the window was drawn in viewport pixels, for hit-testing and dragging */
   dx: number;
   dy: number;
@@ -48,6 +57,8 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
   const ui: RetailUi | null = assets ? await createRetailUi(assets) : null;
   const open = new Map<string, OpenWindow>();
   const placements = new Map<string, Placement>();
+  /** layout name -> where classic_gameplay mounts it */
+  const mounts = new Map<string, Mount>();
   let dirty = true;
 
   /** positions the player has dragged windows to, kept between sessions */
@@ -83,7 +94,7 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     const layout = await ui.load(did);
     const root = [...layout.elements.values()].find((e) => e.elementId === rootElementId)!;
     open.set(name, {
-      layout: name, did, rootElementId, trace: [], dx: 0, dy: 0,
+      layout: name, did, rootElementId, trace: [], dx: 0, dy: 0, mount: mounts.get(name),
       offX: saved[name]?.x ?? 0, offY: saved[name]?.y ?? 0,
       rect: { x: root.x, y: root.y, w: root.width, h: root.height },
     });
@@ -101,6 +112,13 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
    */
   function anchor(w: OpenWindow, vw: number, vh: number) {
     const { x, y, w: rw, h: rh } = w.rect;
+    const m = w.mount;
+    if (m) {
+      // the screen was authored at 800x600; each side keeps its distance from the edge it anchors to
+      const left = m.edges[0] === 2 ? vw - (SCREEN_W - m.x - m.w) - m.w : m.x;
+      const top = m.edges[1] === 2 ? vh - (SCREEN_H - m.y - m.h) - m.h : m.y;
+      return { dx: left - x + w.offX, dy: top - y + w.offY };
+    }
     const p = placements.get(w.layout);
     if (p) {
       const left = p.anchor === "tr" || p.anchor === "br" ? vw - rw - p.x
@@ -209,8 +227,48 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
   addEventListener("mouseup", () => { if (drag) { drag = null; savePositions(); } });
   addEventListener("resize", () => { dirty = true; });
 
+  /**
+   * The retail screen: classic_gameplay is an 800x600 layout whose children are the fields each
+   * floaty window mounts into, with the position, edge anchors and default visibility retail gave
+   * them. Fields that are the whole screen (the 3-D view, the keyboard map, admin) are not windows.
+   */
+  async function mountScreen(): Promise<string[]> {
+    if (!ui) return [];
+    const gpDid = ui.layouts.get("classic_gameplay");
+    if (!gpDid) return [];
+    const gp = await ui.load(gpDid);
+    const screenRoot = [...gp.elements.values()].sort((a, b) => b.children.size - a.children.size)[0];
+    const shown: string[] = [];
+    for (const f of screenRoot.children.values()) {
+      if (f.width >= SCREEN_W && f.height >= SCREEN_H) continue; // the view itself, not a window
+      const base = (ui.elementName?.(f.elementId) ?? "").replace(/^RootGameplay_/, "").replace(/_Field$/, "").toLowerCase();
+      if (!base || base === "admin") continue;
+      // the field's own layout: the floaty one first, then the plain one, preferring an exact size match
+      const candidates = [`classic_${base}`, `classic_floaty${base.replace(/^floaty/, "")}`];
+      let chosen: string | null = null;
+      for (const c of candidates) {
+        const d = ui.layouts.get(c);
+        if (!d) continue;
+        const l = await ui.load(d);
+        const r = [...l.elements.values()].sort((a, b) => b.children.size - a.children.size)[0];
+        if (r && r.width === f.width && r.height === f.height) { chosen = c; break; }
+        chosen ??= c;
+      }
+      if (!chosen) continue;
+      // three fields are alternates retail showed one at a time: the side-vitals style instead of
+      // the floaty vitals, and the environment/combat panels only in those modes. All three share
+      // a rect with something else, so they start hidden and /retail <name> brings them up.
+      const CONTEXTUAL = new Set(["classic_floatysidevitals", "classic_floatyenvpanel", "classic_floatycombatpanel"]);
+      const hidden = ui.isHidden(f) || CONTEXTUAL.has(chosen);
+      mounts.set(chosen, { x: f.x, y: f.y, w: f.width, h: f.height, edges: f.edges, hidden });
+      if (!hidden) { await show(chosen); shown.push(chosen); }
+    }
+    return shown;
+  }
+
   return {
     available: () => ui !== null,
+    mountScreen,
     /** put every window back where it started */
     resetPositions() {
       for (const w of open.values()) { w.offX = 0; w.offY = 0; }

@@ -81,7 +81,7 @@ export interface RetailUi {
   /** drive a meter from live game state: 0..1 */
   setFill(elementId: number, fraction: number): void;
   setItems(elementId: number, items: { icon: number }[]): void;
-  setText(elementId: number, lines: { text: string; color?: string }[]): void;
+  setText(elementId: number, lines: { text: string; color?: string }[], fromTop?: boolean): void;
   setBlips(elementId: number, blips: { dx: number; dy: number; color: string }[]): void;
   setRows(elementId: number, rows: Record<string, string>[]): void;
   panelIdOf(elementId: number, did: number): Promise<number>;
@@ -154,6 +154,8 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
 
   /** live text blocks by element id: lines drawn bottom-up inside the element, newest last */
   const textBlocks = new Map<number, { text: string; color?: string }[]>();
+  /** blocks that read top-down (panels); the chat log stays bottom-anchored */
+  const topAnchored = new Set<number>();
   /** a state forced on an element by the mouse: 0003 rollover, 000D pressed */
   const stateOverride = new Map<number, number>();
   /** the font a text block uses when nothing on the element's chain names one */
@@ -439,6 +441,7 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     y: number,
     w: number,
     h: number,
+    anchorId: number,
   ) {
     const fontProp = propOf(chain, undefined, P.textFont) ?? firstOf(propOf(chain, undefined, P.textFonts));
     const fontId = fontProp && fontProp.type === BasePropertyType.DataFile ? Number(fontProp.value) : DEFAULT_FONT;
@@ -452,8 +455,11 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     ctx.beginPath();
     ctx.rect(x, y, w, h);
     ctx.clip();
-    let lineTop = y + h - lineHeight - 2;
-    for (let i = lines.length - 1; i >= 0 && lineTop + lineHeight > y; i--) {
+    const fromTop = topAnchored.has(anchorId);
+    let lineTop = fromTop ? y + 2 : y + h - lineHeight - 2;
+    for (let k = 0; k < lines.length; k++) {
+      const i = fromTop ? k : lines.length - 1 - k;
+      if (fromTop ? lineTop >= y + h : lineTop + lineHeight <= y) break;
       const glyphs = tint(loaded.sheet, lines[i].color ?? "#e8dcc0");
       let penX = x + 2;
       for (const ch of lines[i].text) {
@@ -464,7 +470,7 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
         if (g.width && g.height) ctx.drawImage(glyphs, g.offsetX, g.offsetY, g.width, g.height, penX, lineTop + g.verticalBefore, g.width, g.height);
         penX += g.width + signed(g.after);
       }
-      lineTop -= lineHeight;
+      lineTop += fromTop ? lineHeight : -lineHeight;
     }
     ctx.restore();
   }
@@ -691,7 +697,7 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
 
     const drewText = await drawText(ctx, chain, st, x, y);
     const block = textBlocks.get(e.elementId);
-    if (block?.length) await drawBlock(ctx, chain, block, x, y, e.width, e.height);
+    if (block?.length) await drawBlock(ctx, chain, block, x, y, e.width, e.height, e.elementId);
     const blips = blipsOf.get(e.elementId);
     if (blips) {
       // the radar dial: Radar_Radius is 50 around the centre of the 120x120 image
@@ -828,7 +834,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       return null;
     },
     /** live lines of text inside an element (the chat log) */
-    setText(elementId: number, lines: { text: string; color?: string }[]) { textBlocks.set(elementId, lines); },
+    setText(elementId: number, lines: { text: string; color?: string }[], fromTop = false) {
+      textBlocks.set(elementId, lines);
+      if (fromTop) topAnchored.add(elementId); else topAnchored.delete(elementId);
+    },
     /** force a state on an element (rollover, pressed); 0 clears it */
     setState(elementId: number, stateId: number) { if (stateId) stateOverride.set(elementId, stateId); else stateOverride.delete(elementId); },
     /** fill an item list with icons */

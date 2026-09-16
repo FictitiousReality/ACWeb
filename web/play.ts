@@ -781,7 +781,7 @@ async function fillRetailPanels() {
   if (credits !== undefined) info.push({ text: `Skill credits ${credits}` });
   const burden = int.get(5);
   if (burden !== undefined) info.push({ text: `Burden ${burden.toLocaleString()}` });
-  for (const el of await r.elementsNamed(/^CharacterInfoText$/)) r.setText(el.id, info.reverse());
+  for (const el of await r.elementsNamed(/^CharacterInfoText$/)) r.setText(el.id, info, true);
 
   // skills: name and effective base for every trained or specialised skill
   const skills: { text: string }[] = [];
@@ -792,13 +792,13 @@ async function fillRetailPanels() {
     skills.push({ text: `${base.name.padEnd(22)} ${sk.initLevel + sk.ranks}${sk.advancement === 3 ? "  (spec)" : ""}` });
   }
   skills.sort((a, b) => a.text.localeCompare(b.text));
-  for (const el of await r.elementsNamed(/^SkillManagement_Attribute_Field$/)) r.setText(el.id, skills.reverse());
+  for (const el of await r.elementsNamed(/^SkillManagement_Attribute_Field$/)) r.setText(el.id, skills, true);
 
   // allegiance: one row per member, in the vassal list's own template
   const a = client.allegiance;
   if (a) {
     const rows = a.members.map((m) => ({
-      VassalNameWrapperField: `${m.name}  (rank ${m.rank}, level ${m.level})`,
+      VassalName: `${m.name}  (rank ${m.rank}, level ${m.level})`, // the wrapper's text child
       VassalExperience: m.cpCached ? `${m.cpCached.toLocaleString()} xp` : "",
       VassalOffline: m.online ? "" : "offline",
     }));

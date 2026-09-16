@@ -393,8 +393,10 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
   return {
     available: () => ui !== null,
     mountScreen,
+    /** what a window drew last frame, element by element, for diagnosing a draw */
+    traceOf: (name: string) => open.get(name)?.trace ?? [],
     elementsNamed,
-    setText: (id: number, lines: { text: string; color?: string }[]) => { ui?.setText(id, lines); dirty = true; },
+    setText: (id: number, lines: { text: string; color?: string }[], fromTop = false) => { ui?.setText(id, lines, fromTop); dirty = true; },
     setBlips: (id: number, blips: { dx: number; dy: number; color: string }[]) => { ui?.setBlips(id, blips); dirty = true; },
     fill: (id: number, f: number) => { ui?.setFill(id, f); dirty = true; },
     setRows: (id: number, rows: Record<string, string>[]) => { ui?.setRows(id, rows); dirty = true; },

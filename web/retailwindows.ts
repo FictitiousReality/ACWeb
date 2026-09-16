@@ -158,7 +158,12 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
       w.trace = [];
       ctx.save();
       ctx.translate(dx, dy);
-      await ui.draw(ctx, layout, w.did, w.rootElementId, w.trace);
+      try {
+        await ui.draw(ctx, layout, w.did, w.rootElementId, w.trace);
+      } catch (err) {
+        // one window failing must not blank the others
+        deps.log(`${w.layout}: ${(err as Error).message}`, "c-error");
+      }
       ctx.restore();
     }
     // the canvas never takes pointer events: clicks are hit-tested in the capture phase below so
@@ -263,12 +268,66 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
       mounts.set(chosen, { x: f.x, y: f.y, w: f.width, h: f.height, edges: f.edges, hidden });
       if (!hidden) { await show(chosen); shown.push(chosen); }
     }
+    for (const w of open.values()) await hostFields(w.did);
+    // everything the screen needs, fetched together instead of one sprite per await while drawing
+    await Promise.all([...open.values()].map((w) => ui!.preload(w.did)));
+    dirty = true;
     return shown;
+  }
+
+  /** every layout drawn anywhere on screen, mounted or hosted, so live data can reach all of them */
+  const hostedLayouts = new Set<number>();
+
+  /**
+   * Fields host other layouts: a *_Field element whose name (minus the suffix) names a layout draws
+   * that layout inside itself. classic_floatypanel's PanelPages hosts one page per panel and shows
+   * the inventory by default; classic_inventory hosts the paperdoll, backpack and 3-D items views.
+   * Recurses so that the paperdoll inside the inventory inside the panel all resolve.
+   */
+  async function hostFields(did: number, depth = 0): Promise<void> {
+    if (!ui || depth > 4) return;
+    const layout = await ui.load(did);
+    const stack = [...layout.elements.values()];
+    while (stack.length) {
+      const e = stack.pop()!;
+      const name = ui.elementName(e.elementId) ?? "";
+      const m = /^(?:Root\w+_)?(\w+?)(?:Panel)?_?Field$/.exec(name);
+      if (m && e.width && e.height && !/^Root/.test(name)) {
+        const base = m[1].toLowerCase();
+        const target = [`classic_${base}`, `classic_${base}panel`, `classic_${base}management`]
+          .map((n) => ui!.layouts.get(n)).find((d) => d !== undefined);
+        if (target && target !== did) {
+          ui.host(e.elementId, target);
+          hostedLayouts.add(target);
+          await hostFields(target, depth + 1);
+        }
+      }
+      // a page group: the fields under PanelPages share one rect; open the inventory page
+      if (name === "PanelPages") {
+        const inventory = [...e.children.values()].find((c) => ui!.elementName(c.elementId) === "InventoryPanel_Field");
+        if (inventory) ui.showPage(e.elementId, inventory.elementId);
+      }
+      stack.push(...e.children.values());
+    }
   }
 
   return {
     available: () => ui !== null,
     mountScreen,
+    /** every item container on screen, in windows and in the layouts hosted inside them */
+    async allItemContainers() {
+      if (!ui) return [] as { layout: string; elementId: number; slots: number }[];
+      const out: { layout: string; elementId: number; slots: number }[] = [];
+      const seen = new Set<number>();
+      const dids: [string, number][] = [...open.values()].map((w) => [w.layout, w.did] as [string, number]);
+      for (const d of hostedLayouts) dids.push([[...ui.layouts].find(([, v]) => v === d)?.[0] ?? d.toString(16), d]);
+      for (const [layout, d] of dids) {
+        if (seen.has(d)) continue;
+        seen.add(d);
+        for (const c of await ui.itemContainers(d)) out.push({ layout, ...c });
+      }
+      return out;
+    },
     /** put every window back where it started */
     resetPositions() {
       for (const w of open.values()) { w.offX = 0; w.offY = 0; }

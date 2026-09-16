@@ -82,6 +82,9 @@ export interface RetailUi {
   setFill(elementId: number, fraction: number): void;
   setItems(elementId: number, items: { icon: number }[]): void;
   elementName(id: number): string | undefined;
+  host(fieldId: number, did: number): void;
+  preload(did: number): Promise<void>;
+  showPage(groupId: number, pageId: number): void;
   isHidden(e: ElementDesc): boolean;
   itemContainers(did: number): Promise<{ elementId: number; slots: number }[]>;
   clickTab(elementId: number): boolean;
@@ -114,6 +117,16 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     const name = mapper.clientEnumToName.get(enumValue);
     if (name && did >>> 24 === 0x21) layouts.set(name, did);
   }
+
+  /**
+   * Fields that host another layout. classic_floatypanel's PanelPages holds one 300x362 field per
+   * panel (inventory 7, character info 3, skills 0xB, spells 0xD, social 0xC...), classic_inventory
+   * hosts PaperDollField, BackpackField and ThreeDItemsField, and so on. A hosted layout is drawn
+   * at the field's origin as if it were the field's own subtree.
+   */
+  const hosted = new Map<number, number>(); // field element id -> layout did drawn inside it
+  /** which page a PanelPages-style field group currently shows, by the host element id */
+  const activePage = new Map<number, number>();
 
   /** live meter fills by element id, so vitals can be driven by the game */
   const fills = new Map<number, number>();
@@ -503,6 +516,28 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     return true;
   }
 
+  /** draw a layout that lives inside a field of another layout */
+  const hostingNow = new Set<number>(); // layouts currently being drawn as hosts, to stop a cycle
+  async function drawHosted(ctx: CanvasRenderingContext2D, did: number, x: number, y: number, w: number, h: number, trace?: DrawRecord[]) {
+    if (hostingNow.has(did) || hostingNow.size > 6) return; // a field that hosts an ancestor, or too deep
+    const l = await load(did);
+    if (!l) return;
+    hostingNow.add(did);
+    try {
+    const root = [...l.elements.values()].sort((a, b) => b.children.size - a.children.size)[0];
+    if (!root) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    // the hosted root is authored at its own position; the field decides where it really goes
+    await drawElement(ctx, root, did, x - root.x, y - root.y, trace);
+    ctx.restore();
+    } finally {
+      hostingNow.delete(did);
+    }
+  }
+
   async function drawElement(
     ctx: CanvasRenderingContext2D,
     e: ElementDesc,
@@ -512,6 +547,12 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     trace?: DrawRecord[],
   ) {
     const x = ox + e.x, y = oy + e.y;
+    const hostedDid = hosted.get(e.elementId);
+    if (hostedDid) {
+      trace?.push({ id: e.elementId.toString(16).toUpperCase(), rect: `${x},${y} ${e.width}x${e.height}`, art: "hosted", painted: true, text: null });
+      await drawHosted(ctx, hostedDid, x, y, e.width, e.height, trace);
+      return;
+    }
     const chain = await chainOf(e, did);
     // the element's own art, else the nearest inherited art
     const own = nearest(chain, (c) => {
@@ -565,8 +606,11 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       }
     }
 
+    const pageOf = activePage.get(e.elementId);
     for (const c of inPaintOrder([...e.children.values()])) {
       if (closed.has(c.elementId)) continue;
+      // a page group shows one page: the chosen one, else the first that hosts a layout
+      if (pageOf !== undefined && hosted.has(c.elementId) && c.elementId !== pageOf) continue;
       await drawElement(ctx, c, did, x, y, trace);
     }
   }
@@ -574,6 +618,41 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   return {
     /** drive a meter from live game state: 0..1 */
     setFill(elementId: number, fraction: number) { fills.set(elementId, fraction); },
+    /**
+     * Fetch every texture a layout and its hosted layouts will draw, all at once. Drawing awaits
+     * sprites one by one, which made a first paint of the whole screen take seven seconds over
+     * HTTP range requests; warmed in parallel it is a fraction of that.
+     */
+    async preload(did: number) {
+      const ids = new Set<number>();
+      const seenLayouts = new Set<number>();
+      const collect = async (d: number) => {
+        if (seenLayouts.has(d) || seenLayouts.size > 40) return;
+        seenLayouts.add(d);
+        const l = await load(d);
+        if (!l) return;
+        const stack = [...l.elements.values()];
+        while (stack.length) {
+          const e = stack.pop()!;
+          const chain = await chainOf(e, d);
+          for (const c of chain) {
+            for (const m of imagesOf(c)) ids.add(m.file);
+            for (const st of c.states.values()) for (const m of imagesOf(st)) ids.add(m.file);
+            const f = firstOf(propOf([c], undefined, P.textFonts));
+            if (f && typeof f.value === "number") ids.add(f.value);
+          }
+          const h = hosted.get(e.elementId);
+          if (h) await collect(h);
+          stack.push(...e.children.values());
+        }
+      };
+      await collect(did);
+      await Promise.all([...ids].map((id) => (id >>> 24 === 0x40 ? font(id) : sprite(id))));
+    },
+    /** draw layout `did` inside field element `fieldId` */
+    host(fieldId: number, did: number) { hosted.set(fieldId, did); },
+    /** of the fields under `groupId`, show only `pageId` */
+    showPage(groupId: number, pageId: number) { activePage.set(groupId, pageId); },
     /** the game's own name for an element id, from EnumMapper 0x2200001B */
     elementName: (id: number) => elementNames.get(id),
     /** whether an element is authored hidden (UICore_Element_hide) */

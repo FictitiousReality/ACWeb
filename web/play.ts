@@ -708,14 +708,11 @@ async function fillRetailItems() {
   if (!r?.available() || !client) return;
   const carried = client.inventory().filter((o) => o.icon && !o.wielder);
   const worn = client.inventory().filter((o) => o.icon && o.wielder === client!.playerGuid);
-  for (const name of ["classic_inventory", "classic_backpack", "classic_paperdoll", "classic_floatytoolbar"]) {
-    if (!r.isOpen(name)) continue;
-    let next = 0;
-    for (const c of await r.itemLists(name)) {
-      // a single 32x32 slot takes one worn item; a grid takes what we are carrying
-      if (c.slots === 1) r.setItems(c.elementId, worn[next] ? [{ icon: worn[next++].icon }] : []);
-      else r.setItems(c.elementId, carried.map((o) => ({ icon: o.icon })));
-    }
+  let next = 0;
+  for (const c of await r.allItemContainers()) {
+    // a single 32x32 slot takes one worn item; a grid takes what we are carrying
+    if (c.slots === 1) r.setItems(c.elementId, worn[next] ? [{ icon: worn[next++].icon }] : []);
+    else r.setItems(c.elementId, carried.map((o) => ({ icon: o.icon })));
   }
 }
 

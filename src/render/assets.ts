@@ -17,7 +17,13 @@ export class Assets {
   private materials = new Map<string, Promise<THREE.Material>>();
   private _region: RegionDesc | null = null;
 
-  constructor(readonly portal: DatDatabase, readonly cell: DatDatabase, readonly highres: DatDatabase | null = null) {}
+  constructor(
+    readonly portal: DatDatabase,
+    readonly cell: DatDatabase,
+    readonly highres: DatDatabase | null = null,
+    /** client_local_English.dat: interface layouts (0x21) and string tables (0x23) live here */
+    readonly lang: DatDatabase | null = null,
+  ) {}
 
   async region(): Promise<RegionDesc> {
     if (!this._region) this._region = (await this.portal.get(REGION_ID, parseRegion))!;

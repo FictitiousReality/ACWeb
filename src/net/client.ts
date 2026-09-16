@@ -307,6 +307,8 @@ export class GameClient {
   properties = { int: new Map<number, number>(), int64: new Map<number, number>(), bool: new Map<number, boolean>(), float: new Map<number, number>(), string: new Map<number, string>() };
   /** the eight saved spell bars (spell ids in order), from the login description */
   spellBars: number[][] = [[], [], [], [], [], [], [], []];
+  /** the toolbar shortcuts the server saved for us: slot index, object guid or layered spell */
+  shortcuts: { index: number; object: number; spell: number; layer: number }[] = [];
   /** enchantments on us, kept current by the MagicUpdate / Remove / Dispel / Purge events */
   enchantments: EnchantmentInfo[] = [];
   /** set by the page from the spell table, so "purge bad enchantments" knows which to drop */
@@ -772,6 +774,7 @@ export class GameClient {
           this.spells = d.spells;
           this.properties = d.properties;
           this.spellBars = d.spellBars;
+          this.shortcuts = d.shortcuts;
           this.enchantments = d.enchantments;
           for (const e of this.enchantments) e.receivedAt = performance.now() / 1000;
           this.events.onEnchantments?.();

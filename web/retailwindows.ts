@@ -16,6 +16,8 @@ export const SCREEN_W = 800, SCREEN_H = 600;
 /** where the retail screen mounts a window: the field's rect and its edge anchors */
 export interface Mount {
   x: number; y: number; w: number; h: number;
+  /** the field's paint order within the screen: later fields draw over earlier ones */
+  readOrder: number;
   /** left/top/right/bottom modes: 1 keeps the distance from the left/top edge, 2 from the right/bottom */
   edges: [number, number, number, number];
   hidden: boolean;
@@ -116,7 +118,13 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     if (m) {
       // the screen was authored at 800x600; each side keeps its distance from the edge it anchors to
       const left = m.edges[0] === 2 ? vw - (SCREEN_W - m.x - m.w) - m.w : m.x;
-      const top = m.edges[1] === 2 ? vh - (SCREEN_H - m.y - m.h) - m.h : m.y;
+      let top = m.edges[1] === 2 ? vh - (SCREEN_H - m.y - m.h) - m.h : m.y;
+      // retail authored the indicator row at the same 0,0 as the vitals and stacked it beneath them;
+      // edge mode 3 is only used by these two and its meaning is not established, so this is a rule
+      if (w.layout === "classic_floatyindicators") {
+        const vitals = open.get("classic_floatyvitals");
+        if (vitals) top += vitals.rect.h;
+      }
       return { dx: left - x + w.offX, dy: top - y + w.offY };
     }
     const p = placements.get(w.layout);
@@ -150,7 +158,8 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, vw, vh);
-    for (const w of open.values()) {
+    const ordered = [...open.values()].sort((a, b) => (a.mount?.readOrder ?? 0) - (b.mount?.readOrder ?? 0));
+    for (const w of ordered) {
       const layout = await ui.load(w.did);
       const { dx, dy } = anchor(w, vw, vh);
       w.dx = dx;
@@ -222,14 +231,33 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     const h = hit(e.clientX - r.left, e.clientY - r.top);
     if (!h) return;
     drag = { w: h.window, startX: e.clientX, startY: e.clientY, offX: h.window.offX, offY: h.window.offY };
+    ui?.setState(h.elementId, PRESSED);
+    dirty = true;
   }, true);
+  // rollover and pressed states follow the mouse; buttons declare 0003 and 000D for these
+  const ROLLOVER = 0x0003, PRESSED = 0x000d;
+  let hover: number | null = null;
   addEventListener("mousemove", (e: MouseEvent) => {
+    if (open.size && !drag) {
+      const r = canvas.getBoundingClientRect();
+      const h = hit(e.clientX - r.left, e.clientY - r.top);
+      const id = h?.elementId ?? null;
+      if (id !== hover) {
+        if (hover !== null) ui?.setState(hover, 0);
+        if (id !== null) ui?.setState(id, ROLLOVER);
+        hover = id;
+        dirty = true;
+      }
+    }
     if (!drag) return;
     drag.w.offX = drag.offX + (e.clientX - drag.startX);
     drag.w.offY = drag.offY + (e.clientY - drag.startY);
     dirty = true;
   });
-  addEventListener("mouseup", () => { if (drag) { drag = null; savePositions(); } });
+  addEventListener("mouseup", () => {
+    if (hover !== null) { ui?.setState(hover, ROLLOVER); dirty = true; }
+    if (drag) { drag = null; savePositions(); }
+  });
   addEventListener("resize", () => { dirty = true; });
 
   /**
@@ -265,7 +293,7 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
       // a rect with something else, so they start hidden and /retail <name> brings them up.
       const CONTEXTUAL = new Set(["classic_floatysidevitals", "classic_floatyenvpanel", "classic_floatycombatpanel"]);
       const hidden = ui.isHidden(f) || CONTEXTUAL.has(chosen);
-      mounts.set(chosen, { x: f.x, y: f.y, w: f.width, h: f.height, edges: f.edges, hidden });
+      mounts.set(chosen, { x: f.x, y: f.y, w: f.width, h: f.height, edges: f.edges, hidden, readOrder: f.readOrder });
       if (!hidden) { await show(chosen); shown.push(chosen); }
     }
     for (const w of open.values()) await hostFields(w.did);
@@ -311,9 +339,30 @@ export async function createRetailWindows(deps: RetailWindowDeps) {
     }
   }
 
+  /** the element of an open window with this retail name, if any */
+  async function elementByName(layout: string, name: string): Promise<number | null> {
+    const w = open.get(layout);
+    if (!ui || !w) return null;
+    const l = await ui.load(w.did);
+    const stack = [...l.elements.values()];
+    while (stack.length) {
+      const e = stack.pop()!;
+      if (ui.elementName(e.elementId) === name) return e.elementId;
+      stack.push(...e.children.values());
+    }
+    return null;
+  }
+
   return {
     available: () => ui !== null,
     mountScreen,
+    /** the live chat log, drawn into retail's main chat window */
+    async setChat(lines: { text: string; color?: string }[]) {
+      const id = await elementByName("classic_floatymainchat", "ChatLogField");
+      if (id === null || !ui) return;
+      ui.setText(id, lines);
+      dirty = true;
+    },
     /** every item container on screen, in windows and in the layouts hosted inside them */
     async allItemContainers() {
       if (!ui) return [] as { layout: string; elementId: number; slots: number }[];

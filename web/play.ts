@@ -47,7 +47,17 @@ function tabsFor(cls: string): Tab[] {
 }
 
 /** Append a line. `sender` makes the name clickable to start a tell. */
+/** the last chat lines, mirrored into retail's own chat window; declared before log() runs at startup */
+const retailChat: { text: string; color?: string }[] = [];
+const CHAT_COLORS: Record<string, string> = { "c-error": "#ff6a5a", "c-system": "#b9b9a6", "c-magic": "#c9a2ff", "c-tell": "#f0d060", "c-emote": "#8fd8ff" };
+function mirrorChat(text: string, cls?: string) {
+  retailChat.push({ text, color: cls ? CHAT_COLORS[cls] : undefined });
+  if (retailChat.length > 80) retailChat.shift();
+  void retailWindows?.setChat(retailChat);
+}
+
 function log(line: string, cls = "", sender?: string) {
+  mirrorChat(sender ? `${sender}: ${line}` : line, cls || undefined);
   if (cls !== "c-debug") console.log(line);
   for (const tab of tabsFor(cls)) {
     const box = $(`log-${tab}`);
@@ -708,11 +718,24 @@ async function fillRetailItems() {
   if (!r?.available() || !client) return;
   const carried = client.inventory().filter((o) => o.icon && !o.wielder);
   const worn = client.inventory().filter((o) => o.icon && o.wielder === client!.playerGuid);
-  let next = 0;
+  // the toolbar holds the server's saved shortcuts by slot index: an object's icon, or a spell's
+  const shortcutIcon = (slot: number) => {
+    const sc = client!.shortcuts.find((x) => x.index === slot);
+    if (!sc) return 0;
+    if (sc.object) return client!.objects.get(sc.object)?.icon ?? 0;
+    return sc.spell ? spellTable?.get(sc.spell)?.iconId ?? 0 : 0;
+  };
+  let wornNext = 0, toolbarSlot = 0;
   for (const c of await r.allItemContainers()) {
-    // a single 32x32 slot takes one worn item; a grid takes what we are carrying
-    if (c.slots === 1) r.setItems(c.elementId, worn[next] ? [{ icon: worn[next++].icon }] : []);
-    else r.setItems(c.elementId, carried.map((o) => ({ icon: o.icon })));
+    if (c.layout === "classic_floatytoolbar") {
+      const icon = shortcutIcon(toolbarSlot++);
+      r.setItems(c.elementId, icon ? [{ icon }] : []);
+    } else if (c.slots === 1) {
+      // a single 32x32 slot on the paperdoll takes one worn item
+      r.setItems(c.elementId, worn[wornNext] ? [{ icon: worn[wornNext++].icon }] : []);
+    } else {
+      r.setItems(c.elementId, carried.map((o) => ({ icon: o.icon })));
+    }
   }
 }
 

@@ -81,6 +81,8 @@ export interface RetailUi {
   /** drive a meter from live game state: 0..1 */
   setFill(elementId: number, fraction: number): void;
   setItems(elementId: number, items: { icon: number }[]): void;
+  setText(elementId: number, lines: { text: string; color?: string }[]): void;
+  setState(elementId: number, stateId: number): void;
   elementName(id: number): string | undefined;
   host(fieldId: number, did: number): void;
   preload(did: number): Promise<void>;
@@ -127,6 +129,13 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
   const hosted = new Map<number, number>(); // field element id -> layout did drawn inside it
   /** which page a PanelPages-style field group currently shows, by the host element id */
   const activePage = new Map<number, number>();
+
+  /** live text blocks by element id: lines drawn bottom-up inside the element, newest last */
+  const textBlocks = new Map<number, { text: string; color?: string }[]>();
+  /** a state forced on an element by the mouse: 0003 rollover, 000D pressed */
+  const stateOverride = new Map<number, number>();
+  /** the font a text block uses when nothing on the element's chain names one */
+  const DEFAULT_FONT = 0x40000002;
 
   /** live meter fills by element id, so vitals can be driven by the game */
   const fills = new Map<number, number>();
@@ -391,6 +400,45 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     return text;
   }
 
+  /** lines of live text inside an element: newest at the bottom, clipped to the box */
+  async function drawBlock(
+    ctx: CanvasRenderingContext2D,
+    chain: ElementDesc[],
+    lines: { text: string; color?: string }[],
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ) {
+    const fontProp = propOf(chain, undefined, P.textFont) ?? firstOf(propOf(chain, undefined, P.textFonts));
+    const fontId = fontProp && fontProp.type === BasePropertyType.DataFile ? Number(fontProp.value) : DEFAULT_FONT;
+    const loaded = await font(fontId);
+    if (!loaded?.sheet) return;
+    const f = loaded.font;
+    const chars = new Map(f.chars.map((c) => [c.unicode, c]));
+    const signed = (b: number) => (b > 127 ? b - 256 : b);
+    const lineHeight = f.maxCharHeight;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    let lineTop = y + h - lineHeight - 2;
+    for (let i = lines.length - 1; i >= 0 && lineTop + lineHeight > y; i--) {
+      const glyphs = tint(loaded.sheet, lines[i].color ?? "#e8dcc0");
+      let penX = x + 2;
+      for (const ch of lines[i].text) {
+        const g = chars.get(ch.charCodeAt(0));
+        if (!g) continue;
+        penX += signed(g.before);
+        if (penX > x + w) break;
+        if (g.width && g.height) ctx.drawImage(glyphs, g.offsetX, g.offsetY, g.width, g.height, penX, lineTop + g.verticalBefore, g.width, g.height);
+        penX += g.width + signed(g.after);
+      }
+      lineTop -= lineHeight;
+    }
+    ctx.restore();
+  }
+
   async function paint(ctx: CanvasRenderingContext2D, images: MediaDesc[], x: number, y: number, w: number, h: number) {
     let painted = false;
     for (const m of images) {
@@ -575,10 +623,13 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
       if (!c.states.size) return undefined;
       return [...c.states.values()].some((st) => imagesOf(st).length) ? c.states : undefined;
     }) ?? nearest(chain, (c) => (c.states.size ? c.states : undefined));
-    const st = states ? restingState(states) : undefined;
+    const forced = stateOverride.get(e.elementId);
+    const st = states ? (forced !== undefined ? states.get(forced) : undefined) ?? restingState(states) : undefined;
     if (st) painted = (await paint(ctx, imagesOf(st), x, y, e.width, e.height)) || painted;
 
     const drewText = await drawText(ctx, chain, st, x, y);
+    const block = textBlocks.get(e.elementId);
+    if (block?.length) await drawBlock(ctx, chain, block, x, y, e.width, e.height);
     trace?.push({
       id: e.elementId.toString(16).toUpperCase(),
       rect: `${x},${y} ${e.width}x${e.height}`,
@@ -657,6 +708,10 @@ export async function createRetailUi(assets: Assets): Promise<RetailUi | null> {
     elementName: (id: number) => elementNames.get(id),
     /** whether an element is authored hidden (UICore_Element_hide) */
     isHidden: (e: ElementDesc) => HIDE_PROP !== 0 && e.properties.get(HIDE_PROP)?.value === true,
+    /** live lines of text inside an element (the chat log) */
+    setText(elementId: number, lines: { text: string; color?: string }[]) { textBlocks.set(elementId, lines); },
+    /** force a state on an element (rollover, pressed); 0 clears it */
+    setState(elementId: number, stateId: number) { if (stateId) stateOverride.set(elementId, stateId); else stateOverride.delete(elementId); },
     /** fill an item list with icons */
     setItems(elementId: number, items: { icon: number }[]) { itemsOf.set(elementId, items); },
     /** every element of a layout that holds items: grids and single equipment slots */

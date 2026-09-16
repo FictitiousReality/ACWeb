@@ -737,6 +737,8 @@ export interface PlayerDescription {
   enchantments: EnchantmentInfo[];
   /** the eight saved spell bars (spell ids in order) */
   spellBars: number[][];
+  /** the toolbar: slot index, the object it holds, or a layered spell */
+  shortcuts: { index: number; object: number; spell: number; layer: number }[];
 }
 /** One enchantment as the server sends it (login registry and the MagicUpdate events). */
 export function readEnchantment(r: BinReader): EnchantmentInfo {
@@ -788,7 +790,7 @@ export function parsePlayerDescription(r: BinReader): PlayerDescription {
   const flags = r.u32();
   r.u32(); // weenie type
   const out: PlayerDescription = {
-    attributes: {}, vitals: {}, skills: new Map(), spells: [], enchantments: [], spellBars: [],
+    attributes: {}, vitals: {}, skills: new Map(), spells: [], enchantments: [], spellBars: [], shortcuts: [],
     properties: { int: new Map(), int64: new Map(), bool: new Map(), float: new Map(), string: new Map() },
   };
   const p = out.properties;
@@ -846,7 +848,7 @@ export function parsePlayerDescription(r: BinReader): PlayerDescription {
     r.u32(); // character options 1
     if (optionFlags & 0x0001) { // shortcut bar: index, object, layered spell
       const n = r.u32();
-      for (let i = 0; i < n; i++) { r.u32(); r.u32(); r.u16(); r.u16(); }
+      for (let i = 0; i < n; i++) out.shortcuts.push({ index: r.u32(), object: r.u32(), spell: r.u16(), layer: r.u16() });
     }
     if (optionFlags & 0x0400) { // eight spell bars
       for (let b = 0; b < 8; b++) {
